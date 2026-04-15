@@ -1,40 +1,27 @@
 /**
- * Database Configuration
+ * File: src/config/database.config.ts
  *
  * Purpose:
- * - Defines PostgreSQL connection settings
- * - Loads credentials from environment variables
+ * Central database configuration for PostgreSQL.
  *
- * Security Notes:
- * - NEVER hardcode database passwords
- * - Use environment variables for all credentials
- * - Ensure database is not publicly exposed
+ * Values exposed:
+ * - host
+ * - port
+ * - username
+ * - password
+ * - name
+ * - synchronize
+ * - logging
  */
-export default () => ({
-  database: {
-    /**
-     * Database host (localhost or remote server)
-     */
-    host: process.env.DB_HOST || '127.0.0.1',
 
-    /**
-     * Database port
-     */
-    port: parseInt(process.env.DB_PORT || '5432', 10),
+import { registerAs } from '@nestjs/config';
 
-    /**
-     * Database name
-     */
-    name: process.env.DB_NAME || 'peoplefirst',
-
-    /**
-     * Database username
-     */
-    user: process.env.DB_USER || 'postgres',
-
-    /**
-     * Database password
-     */
-    password: process.env.DB_PASSWORD || 'postgres',
-  },
-});
+export default registerAs('database', () => ({
+  host: process.env.DB_HOST ?? 'localhost',
+  port: parseInt(process.env.DB_PORT ?? '5432', 10),
+  username: process.env.DB_USERNAME ?? 'postgres',
+  password: process.env.DB_PASSWORD ?? '',
+  name: process.env.DB_NAME ?? 'people_first_politician',
+  synchronize: (process.env.DB_SYNCHRONIZE ?? 'true').toLowerCase() === 'true',
+  logging: (process.env.DB_LOGGING ?? 'true').toLowerCase() === 'true',
+}));

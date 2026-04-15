@@ -1,30 +1,22 @@
 /**
- * Application Configuration
+ * File: src/config/app.config.ts
  *
  * Purpose:
- * - Defines general application settings
- * - Loads values from environment variables (.env)
+ * Central application-level configuration.
  *
- * Security Notes:
- * - No sensitive values should be hardcoded here
- * - All values must come from environment variables where possible
+ * Values exposed:
+ * - port
+ * - apiPrefix
+ * - corsOrigins
  */
-export default () => ({
-  app: {
-    /**
-     * Application name (for logging, display, etc.)
-     */
-    name: process.env.APP_NAME || 'PeopleFirstPolitician',
 
-    /**
-     * Server port
-     * Default: 3000
-     */
-    port: parseInt(process.env.PORT || '3000', 10),
+import { registerAs } from '@nestjs/config';
 
-    /**
-     * Environment mode (development, production, etc.)
-     */
-    nodeEnv: process.env.NODE_ENV || 'development',
-  },
-});
+export default registerAs('app', () => ({
+  port: parseInt(process.env.PORT ?? '3000', 10),
+  apiPrefix: process.env.API_PREFIX ?? 'api/v1',
+  corsOrigins: (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+}));
