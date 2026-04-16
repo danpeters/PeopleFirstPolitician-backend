@@ -34,48 +34,47 @@ import { AuditModule } from './modules/audit/audit.module';
      * - In production, enable SSL
      * - In local development, use DB_* variables without SSL
      */
-    TypeOrmModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const nodeEnv = configService.get<string>('NODE_ENV');
-        const isProduction = nodeEnv === 'production';
-        const databaseUrl = configService.get<string>('DATABASE_URL');
+    
+    
+  TypeOrmModule.forRootAsync({
+    inject: [ConfigService],
+    useFactory: (configService: ConfigService) => {
+      const nodeEnv = configService.get<string>('NODE_ENV');
+      const isProduction = nodeEnv === 'production';
+      const databaseUrl = configService.get<string>('DATABASE_URL');
 
-        if (databaseUrl) {
-          return {
-            type: 'postgres' as const,
-            url: databaseUrl,
-            autoLoadEntities: true,
-            synchronize: false,
-            ...(isProduction
-              ? {
-                  ssl: {
-                    rejectUnauthorized: false,
-                  },
-                }
-              : {}),
-          };
-        }
-
+      if (databaseUrl) {
         return {
           type: 'postgres' as const,
-          host: configService.get<string>('DB_HOST'),
-          port: Number(configService.get<string>('DB_PORT')) || 5432,
-          username: configService.get<string>('DB_USERNAME'),
-          password: configService.get<string>('DB_PASSWORD'),
-          database: configService.get<string>('DB_NAME'),
+          url: databaseUrl,
           autoLoadEntities: true,
-          synchronize: !isProduction,
-          ...(isProduction
-            ? {
-                ssl: {
-                  rejectUnauthorized: false,
-                },
-              }
-            : {}),
+          synchronize: false,
+          ssl: {
+            rejectUnauthorized: false,
+          },
         };
-      },
-    }),
+      }
+
+      return {
+        type: 'postgres' as const,
+        host: configService.get<string>('DB_HOST'),
+        port: Number(configService.get<string>('DB_PORT')) || 5432,
+        username: configService.get<string>('DB_USERNAME'),
+        password: configService.get<string>('DB_PASSWORD'),
+        database: configService.get<string>('DB_NAME'),
+        autoLoadEntities: true,
+        synchronize: !isProduction,
+        ...(isProduction
+          ? {
+              ssl: {
+                rejectUnauthorized: false,
+              },
+            }
+          : {}),
+      };
+    },
+  }),
+
 
     UsersModule,
     AuthModule,
