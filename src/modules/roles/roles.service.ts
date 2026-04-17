@@ -2,19 +2,18 @@
  * File: src/modules/roles/roles.service.ts
  *
  * Purpose:
- * Handles business logic related to roles.
- *
- * Responsibilities:
- * - Fetch roles with pagination, search, and sorting
+ * Service layer for role management.
+ * Supports:
+ * - paginated role listing
+ * - lookup by id
+ * - lookup by name
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Role } from './entities/role.entity';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { buildPaginatedResponse } from '../../common/utils/pagination-response.util';
 
 @Injectable()
 export class RolesService {
@@ -24,43 +23,69 @@ export class RolesService {
   ) {}
 
   /**
-   * Fetch all roles with pagination, search, and sorting.
-   *
-   * Supported query options:
-   * - page
-   * - limit
-   * - search
-   * - sortBy
-   * - sortOrder
+   * Get paginated list of roles
    */
-  async findAll(query: PaginationQueryDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
-    const search = query.search?.trim();
-    const sortBy = query.sortBy ?? 'createdAt';
-    const sortOrder = query.sortOrder ?? 'DESC';
+  async findAll(query?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: 'ASC' | 'DESC';
+  }) {
+    const page = Number(query?.page) > 0 ? Number(query?.page) : 1;
+    const limit = Number(query?.limit) > 0 ? Number(query?.limit) : 10;
+    const skip = (page - 1) * limit;
 
-    const allowedSortFields = ['createdAt', 'updatedAt', 'name', 'description'];
-    const safeSortBy = allowedSortFields.includes(sortBy)
-      ? sortBy
-      : 'createdAt';
+    const sortBy = query?.sortBy || 'name';
+    const sortOrder = query?.sortOrder === 'DESC' ? 'DESC' : 'ASC';
 
-    const queryBuilder = this.roleRepository.createQueryBuilder('role');
+    const qb = this.roleRepository.createQueryBuilder('role');
 
-    if (search) {
-      queryBuilder.andWhere(
-        '(role.name ILIKE :search OR role.description ILIKE :search)',
-        {
-          search: `%${search}%`,
-        },
-      );
+    if (query?.search) {
+      qb.where('LOWER(role.name) LIKE LOWER(:search)', {
+        search: `%${query.search}%`,
+      }).orWhere('LOWER(role.description) LIKE LOWER(:search)', {
+        search: `%${query.search}%`,
+      });
     }
 
-    queryBuilder.orderBy(`role.${safeSortBy}`, sortOrder);
-    queryBuilder.skip((page - 1) * limit).take(limit);
+    qb.orderBy(`role.${sortBy}`, sortOrder).skip(skip).take(limit);
 
-    const [roles, totalItems] = await queryBuilder.getManyAndCount();
+    const [items, totalItems] = await qb.getManyAndCount();
 
-    return buildPaginatedResponse(roles, page, limit, totalItems);
+    return {
+      items,
+      meta: {
+        page,
+        limit,
+        totalItems,
+        totalPages: Math.ceil(totalItems / limit),
+      },
+    };
+  }
+
+  /**
+   * Find one role by ID
+   */
+  async findOne(id: string) {
+    const role = await this.roleRepository.findOne({
+      where: { id },
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Role with ID "${id}" not found`);
+    }
+
+    return role;
+  }
+
+  /**
+   * Find one role by exact name
+   * Needed for admin seeding and auth logic.
+   */
+  async findByName(name: string) {
+    return this.roleRepository.findOne({
+      where: { name },
+    });
   }
 }

@@ -3,7 +3,8 @@
  *
  * Purpose:
  * Authentication controller.
- * Includes a temporary seed-admin endpoint for first production setup.
+ * Includes login, refresh, logout, current-user route,
+ * and a temporary admin seed endpoint.
  */
 
 import { Body, Controller, Get, Post } from '@nestjs/common';
@@ -39,9 +40,7 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current logged-in user' })
   async me() {
-    return {
-      message: 'Protected route working. Add your JWT guard/user extraction here if not already wired.',
-    };
+    return this.authService.me();
   }
 
   /**
