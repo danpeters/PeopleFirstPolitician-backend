@@ -1,110 +1,74 @@
 /**
  * File: src/main.ts
- *
- * Purpose:
- * Application bootstrap entry point.
- *
- * Responsibilities:
- * - create Nest application
- * - apply security middleware
- * - apply global validation
- * - configure CORS
- * - configure global API prefix
- * - configure Swagger
- * - start HTTP server
+ * Description:
+ * Entry point of the NestJS application.
+ * Configured for Railway deployment (binds to 0.0.0.0 and dynamic PORT).
  */
 
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import helmet from 'helmet';
-
 import { AppModule } from './app.module';
-import { AppLogger } from './common/logger/app.logger';
+
+// (Optional but recommended)
+import { ValidationPipe } from '@nestjs/common';
+
+// Swagger (only if already installed in your project)
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  const appLogger = new AppLogger();
-  app.useLogger(appLogger);
-
   /**
-   * Security headers
-   */
-  app.use(helmet());
-
-  /**
-   * Restricted CORS
-   *
-   * Update these origins later to match:
-   * - your frontend local dev URL
-   * - your production frontend URL
-   */
-  app.enableCors({
-    origin: [
-      'http://localhost:3001',
-      'http://127.0.0.1:3001',
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-    ],
-    credentials: true,
-  });
-
-  /**
-   * Global API prefix
-   *
-   * All routes become:
-   * /api/v1/...
+   * GLOBAL SETTINGS
    */
   app.setGlobalPrefix('api/v1');
 
-  /**
-   * Global validation pipe
-   *
-   * Security-critical settings:
-   * - whitelist: removes unknown fields
-   * - forbidNonWhitelisted: rejects unexpected fields
-   * - transform: converts input types automatically
-   */
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: true,
       transform: true,
+      forbidNonWhitelisted: true,
     }),
   );
 
   /**
-   * Swagger API documentation
+   * CORS (important for frontend access)
    */
-  const swaggerConfig = new DocumentBuilder()
+  app.enableCors({
+    origin: true,
+    credentials: true,
+  });
+
+  /**
+   * SWAGGER SETUP (safe for production, but optional)
+   */
+  const config = new DocumentBuilder()
     .setTitle('People First Politician API')
-    .setDescription('Backend API documentation for People First Politician')
+    .setDescription('Backend API documentation')
     .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description: 'Paste only the JWT access token',
-      },
-      'access-token',
-    )
+    .addBearerAuth()
     .build();
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
   /**
-   * Start server
+   * PORT CONFIGURATION (CRITICAL FOR RAILWAY)
    */
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
+  const port = Number(process.env.PORT) || 3000;
 
-  const appUrl = await app.getUrl();
+  /**
+   * HOST CONFIGURATION (CRITICAL FIX)
+   * Railway requires 0.0.0.0 (NOT localhost / 127.0.0.1 / ::1)
+   */
+  const host = '0.0.0.0';
 
-  appLogger.log(`Application is running on: ${appUrl}/api/v1`, 'Bootstrap');
-  appLogger.log(`Swagger docs available at: ${appUrl}/api/docs`, 'Bootstrap');
+  await app.listen(port, host);
+
+  /**
+   * LOGGING
+   */
+  console.log(`🚀 Application is running on: http://${host}:${port}/api/v1`);
+  console.log(`📄 Swagger docs available at: http://${host}:${port}/api/docs`);
 }
 
 bootstrap();
