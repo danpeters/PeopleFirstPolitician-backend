@@ -48,7 +48,7 @@ import { AuditModule } from './modules/audit/audit.module';
           type: 'postgres' as const,
           url: databaseUrl,
           autoLoadEntities: true,
-          synchronize: false,
+          synchronize: true,
           ssl: {
             rejectUnauthorized: false,
           },
@@ -63,7 +63,7 @@ import { AuditModule } from './modules/audit/audit.module';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
         autoLoadEntities: true,
-        synchronize: !isProduction,
+        synchronize: true,
         ...(isProduction
           ? {
               ssl: {
