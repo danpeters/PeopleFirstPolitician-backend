@@ -420,4 +420,23 @@ export class UsersService {
     const { passwordHash, refreshTokenHash, ...safeUser } = user;
     return safeUser;
   }
+
+
+  async createSeedUser(data: {
+    fullName: string;
+    email: string;
+    password: string;
+    roleId: string;
+    status: string;
+  }) {
+    const user = this.userRepository.create({
+      fullName: data.fullName,
+      email: data.email,
+      password: data.password,
+      roleId: data.roleId,
+      status: data.status,
+    });
+
+    return this.userRepository.save(user);
+  }
 }
