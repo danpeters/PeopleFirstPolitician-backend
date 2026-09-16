@@ -16,11 +16,14 @@
  * - Write audit logs for important admin actions
  */
 
+// File: C:\Projects\PeopleFirstPolitician\backend\src\modules\users\users.service.ts
+
 import {
   BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -112,6 +115,21 @@ export class UsersService {
       },
     });
 
+    // File: C:\Projects\PeopleFirstPolitician\backend\src\modules\users\users.service.ts
+
+    /**
+     * Change a user's password.
+     *
+     * Security:
+     * - Verifies the current password before making any change.
+     * - Prevents reuse of the current password.
+     * - Hashes the new password with bcrypt.
+     * - Clears the refresh-token hash so existing refresh credentials
+     *   cannot be reused after a password change.
+     * - Records the password change in the audit log.
+     * - Never returns the password hash.
+     */
+   
     return this.mapUserResponse(fullUser);
   }
 
@@ -274,7 +292,8 @@ export class UsersService {
 
     if (
       nextStatus !== UserStatusEnum.ACTIVE &&
-      nextStatus !== UserStatusEnum.INACTIVE
+      nextStatus !== UserStatusEnum.INACTIVE &&
+      nextStatus !== UserStatusEnum.SUSPENDED
     ) {
       throw new BadRequestException('Invalid user status');
     }
@@ -413,6 +432,97 @@ export class UsersService {
     return this.mapUserResponse(restoredUser);
   }
 
+
+// File: C:\Projects\PeopleFirstPolitician\backend\src\modules\users\users.service.ts
+
+  /**
+   * Change a user's password.
+   *
+   * Security:
+   * - Verifies the current password before making any change.
+   * - Prevents reuse of the current password.
+   * - Hashes the new password with bcrypt.
+   * - Clears the refresh-token hash so existing refresh credentials
+   *   cannot be reused after a password change.
+   * - Records the password change in the audit log.
+   * - Never returns the password hash.
+   */
+  async changePassword(
+    id: string,
+    currentPassword: string,
+    newPassword: string,
+    actorId: string | null,
+  ) {
+    const user = await this.userRepository.findOne({
+      where: { id },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    /**
+     * Verify the current password.
+     */
+    const isCurrentPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash,
+    );
+
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    /**
+     * Prevent reuse of the current password.
+     */
+    const isSamePassword = await bcrypt.compare(
+      newPassword,
+      user.passwordHash,
+    );
+
+    if (isSamePassword) {
+      throw new BadRequestException(
+        'New password must be different from the current password',
+      );
+    }
+
+    /**
+     * Hash the new password securely.
+     */
+    // File: C:\Projects\PeopleFirstPolitician\backend\src\modules\users\users.service.ts
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.refreshTokenHash = null;
+
+    console.log('[PASSWORD CHANGE] Saving new password hash for:', user.email);
+    console.log('[PASSWORD CHANGE] New hash length:', user.passwordHash.length);
+
+    const savedUser = await this.userRepository.save(user);
+
+    console.log('[PASSWORD CHANGE] Database save completed.');
+    console.log('[PASSWORD CHANGE] Saved hash length:', savedUser.passwordHash.length);
+
+    /**
+     * Record the security-sensitive action.
+     *
+     * The password itself is never included in the audit record.
+     */
+    await this.auditService.log({
+      action: 'PASSWORD_CHANGED',
+      module: 'auth',
+      actorId,
+      targetId: user.id,
+      details: {
+        passwordChanged: true,
+      },
+    });
+
+    return {
+      message: 'Password changed successfully',
+    };
+  }
+
   /**
    * Remove sensitive fields before returning user objects.
    */
@@ -421,18 +531,34 @@ export class UsersService {
     return safeUser;
   }
 
-
+  /**
+ * File:
+ * C:\Projects\PeopleFirstPolitician\backend\src\modules\users\users.service.ts
+ *
+ * Purpose:
+ * Creates a user account during system bootstrapping,
+ * specifically for the initial administrator account.
+ *
+ * Security:
+ * - The password received here must already be hashed.
+ * - Plaintext passwords must never be stored.
+ * - The password hash is stored in User.passwordHash.
+ * - User status uses UserStatusEnum.
+ *
+ * Day 2 Module:
+ * Users Module
+ */
   async createSeedUser(data: {
     fullName: string;
     email: string;
-    password: string;
+    passwordHash: string;
     roleId: string;
-    status: string;
+    status: UserStatusEnum;
   }) {
     const user = this.userRepository.create({
       fullName: data.fullName,
       email: data.email,
-      password: data.password,
+      passwordHash: data.passwordHash,
       roleId: data.roleId,
       status: data.status,
     });

@@ -3,12 +3,25 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 
 // Import your modules
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { AuditModule } from './modules/audit/audit.module';
+
+/**
+ * C:\Projects\PeopleFirstPolitician\backend\src\app.module.ts
+ *
+ * Geography module provides:
+ * - States
+ * - LGAs
+ * - Wards
+ * - Polling Units
+ */
+import { GeographyModule } from './modules/geography/geography.module';
 
 @Module({
   imports: [
@@ -68,6 +81,15 @@ import { AuditModule } from './modules/audit/audit.module';
     UsersModule,
     RolesModule,
     AuditModule,
+    GeographyModule,
+  ],
+
+  controllers: [
+    AppController,
+  ],
+
+  providers: [
+    AppService,
   ],
 })
 export class AppModule {}

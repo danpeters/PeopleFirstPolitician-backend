@@ -20,6 +20,7 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 
 import { UsersModule } from '../users/users.module';
+import { RolesModule } from '../roles/roles.module';
 
 @Module({
   imports: [
@@ -34,9 +35,17 @@ import { UsersModule } from '../users/users.module';
     UsersModule,
 
     /**
+     * Gives AuthService access to RolesService.
+     *
+     * RolesModule exports RolesService.
+     */
+    RolesModule,
+
+    /**
      * Registers JwtService using configuration values.
      */
     JwtModule.registerAsync({
+
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({

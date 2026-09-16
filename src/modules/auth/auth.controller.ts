@@ -7,11 +7,24 @@
  * and a temporary admin seed endpoint.
  */
 
-import { Body, Controller, Get, Post } from '@nestjs/common';
+// File: C:\Projects\PeopleFirstPolitician\backend\src\modules\auth\auth.controller.ts
+
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -36,12 +49,63 @@ export class AuthController {
     return this.authService.logout(body.refreshToken);
   }
 
+    /**
+   * Get the currently authenticated user.
+   *
+   * File: src/modules/auth/auth.controller.ts
+   *
+   * Security:
+   * - JwtAuthGuard verifies the bearer access token.
+   * - The JWT strategy places the authenticated user's ID in req.user.userId.
+   * - The user ID is passed to AuthService.me().
+   */
   @Get('me')
-  @ApiBearerAuth()
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get current logged-in user' })
-  async me() {
-    return this.authService.me();
+  async me(@Req() req: { user: { userId: string } }) {
+    return this.authService.me(req.user.userId);
   }
+
+  // File: C:\Projects\PeopleFirstPolitician\backend\src\modules\auth\auth.controller.ts
+
+  /**
+   * Change the password of the currently authenticated user.
+   *
+   * Security:
+   * - Requires a valid JWT access token.
+   * - Uses the authenticated user's ID from req.user.
+   * - Does not accept a user ID from the client.
+   * - Current password must be verified before the new password is stored.
+   */
+  @Patch('change-password')
+  @ApiBearerAuth('bearer')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Change current user password' })
+  async changePassword(
+    @Req() req: { user: { userId: string } },
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    if (
+      changePasswordDto.newPassword !==
+      changePasswordDto.confirmPassword
+    ) {
+      
+      throw new BadRequestException(
+        'New password and confirmation do not match',
+      );
+    
+    }
+
+    return this.authService.changePassword(
+      req.user.userId,
+      changePasswordDto.currentPassword,
+      changePasswordDto.newPassword,
+      req.user.userId,
+    );
+  }
+
+
 
   /**
    * TEMPORARY ENDPOINT

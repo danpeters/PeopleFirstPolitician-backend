@@ -1,3 +1,5 @@
+// File: C:\Projects\PeopleFirstPolitician\backend\src\modules\auth\auth.service.ts
+
 /**
  * File: src/modules/auth/auth.service.ts
  *
@@ -43,8 +45,14 @@ export class AuthService {
     }
 
     /**
-     * IMPORTANT:
-     * Compare incoming password against passwordHash
+     * Reject inactive or suspended accounts.
+     */
+    if (user.status !== UserStatusEnum.ACTIVE) {
+      throw new UnauthorizedException('Account is not active');
+    }
+
+    /**
+     * Compare incoming password against passwordHash.
      */
     const isPasswordValid = await bcrypt.compare(
       loginDto.password,
@@ -106,6 +114,46 @@ export class AuthService {
       message: 'Logout endpoint not fully wired yet',
       refreshToken,
     };
+  }
+
+  /**
+   * Get the currently authenticated user.
+   *
+   * Purpose:
+   * - Retrieves the currently authenticated user by ID.
+   * - The user ID is extracted from the validated JWT.
+   * - Delegates the user lookup to UsersService.
+   *
+   * Security:
+   * - UsersService.findOne() returns a safe user object.
+   * - passwordHash and refreshTokenHash are removed before
+   *   the user object is returned to the client.
+   *
+   * @param userId - ID of the authenticated user.
+   */
+  async me(userId: string) {
+    return this.usersService.findOne(userId);
+  }
+
+  /**
+   * Change the password of the currently authenticated user.
+   *
+   * The actual password verification and hashing are delegated
+   * to UsersService so passwordHash remains inside the users
+   * business-logic layer.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    actorId: string | null,
+  ) {
+    return this.usersService.changePassword(
+      userId,
+      currentPassword,
+      newPassword,
+      actorId,
+    );
   }
 
   /**

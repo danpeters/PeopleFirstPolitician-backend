@@ -100,7 +100,7 @@ export class UsersController {
   async create(@Body() createUserDto: CreateUserDto, @Request() req: any) {
     const createdUser = await this.usersService.create(
       createUserDto,
-      req.user?.id ?? null,
+      req.user?.userId ?? null,
     );
     return buildSuccessResponse('User created successfully', createdUser);
   }
@@ -125,7 +125,7 @@ export class UsersController {
     const updatedUser = await this.usersService.update(
       id,
       updateUserDto,
-      req.user?.id ?? null,
+      req.user?.userId ?? null,
     );
     return buildSuccessResponse('User updated successfully', updatedUser);
   }
@@ -150,7 +150,7 @@ export class UsersController {
     const updatedUserStatus = await this.usersService.updateStatus(
       id,
       updateUserStatusDto,
-      req.user?.id ?? null,
+      req.user?.userId ?? null,
     );
     return buildSuccessResponse(
       'User status updated successfully',
@@ -171,7 +171,7 @@ export class UsersController {
   @Roles('super_admin')
   @Delete(':id')
   async remove(@Param('id') id: string, @Request() req: any) {
-    const result = await this.usersService.remove(id, req.user?.id ?? null);
+    const result = await this.usersService.remove(id, req.user?.userId ?? null);
     return buildSuccessResponse('User deleted successfully', result);
   }
 
@@ -190,7 +190,7 @@ export class UsersController {
   async restore(@Param('id') id: string, @Request() req: any) {
     const restoredUser = await this.usersService.restore(
       id,
-      req.user?.id ?? null,
+      req.user?.userId ?? null,
     );
     return buildSuccessResponse('User restored successfully', restoredUser);
   }
