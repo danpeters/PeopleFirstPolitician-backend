@@ -6,22 +6,29 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
-// Import your modules
+// Import modules
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { GeographyModule } from './modules/geography/geography.module';
 
 /**
- * C:\Projects\PeopleFirstPolitician\backend\src\app.module.ts
+ * Application module.
  *
  * Geography module provides:
  * - States
  * - LGAs
  * - Wards
  * - Polling Units
+ *
+ * Database:
+ * - Railway/production uses DATABASE_URL.
+ * - Local development uses DB_* variables.
+ * - Production schema synchronisation is disabled.
+ * - Local schema synchronisation remains enabled temporarily
+ *   until TypeORM migrations are established.
  */
-import { GeographyModule } from './modules/geography/geography.module';
 
 @Module({
   imports: [
@@ -39,15 +46,17 @@ import { GeographyModule } from './modules/geography/geography.module';
 
         const isProduction = nodeEnv === 'production';
 
-        // 🔹 Railway / Production (uses DATABASE_URL)
+        // Railway / Production
         if (databaseUrl) {
           return {
             type: 'postgres' as const,
             url: databaseUrl,
             autoLoadEntities: true,
 
-            // TEMP: keep true until DB is stable
-            synchronize: true,
+            // Production database schema must not be
+            // modified automatically.
+            // Schema changes will be managed with migrations.
+            synchronize: false,
 
             ssl: {
               rejectUnauthorized: false,
@@ -55,7 +64,7 @@ import { GeographyModule } from './modules/geography/geography.module';
           };
         }
 
-        // 🔹 Local development
+        // Local development
         return {
           type: 'postgres' as const,
           host: configService.get<string>('DB_HOST'),
@@ -65,6 +74,7 @@ import { GeographyModule } from './modules/geography/geography.module';
           database: configService.get<string>('DB_NAME'),
           autoLoadEntities: true,
 
+          // Temporarily enabled for local development.
           synchronize: true,
 
           ...(isProduction && {
@@ -76,7 +86,7 @@ import { GeographyModule } from './modules/geography/geography.module';
       },
     }),
 
-    // Your modules
+    // Application modules
     AuthModule,
     UsersModule,
     RolesModule,

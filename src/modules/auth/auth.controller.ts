@@ -4,10 +4,8 @@
  * Purpose:
  * Authentication controller.
  * Includes login, refresh, logout, current-user route,
- * and a temporary admin seed endpoint.
+ * and change-password functionality.
  */
-
-// File: C:\Projects\PeopleFirstPolitician\backend\src\modules\auth\auth.controller.ts
 
 import {
   BadRequestException,
@@ -19,11 +17,11 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ChangePasswordDto } from './dto/change-password.dto';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('Auth')
@@ -49,10 +47,8 @@ export class AuthController {
     return this.authService.logout(body.refreshToken);
   }
 
-    /**
+  /**
    * Get the currently authenticated user.
-   *
-   * File: src/modules/auth/auth.controller.ts
    *
    * Security:
    * - JwtAuthGuard verifies the bearer access token.
@@ -66,8 +62,6 @@ export class AuthController {
   async me(@Req() req: { user: { userId: string } }) {
     return this.authService.me(req.user.userId);
   }
-
-  // File: C:\Projects\PeopleFirstPolitician\backend\src\modules\auth\auth.controller.ts
 
   /**
    * Change the password of the currently authenticated user.
@@ -90,11 +84,9 @@ export class AuthController {
       changePasswordDto.newPassword !==
       changePasswordDto.confirmPassword
     ) {
-      
       throw new BadRequestException(
         'New password and confirmation do not match',
       );
-    
     }
 
     return this.authService.changePassword(
@@ -103,18 +95,5 @@ export class AuthController {
       changePasswordDto.newPassword,
       req.user.userId,
     );
-  }
-
-
-
-  /**
-   * TEMPORARY ENDPOINT
-   * Use once to seed the first admin user in production.
-   * Remove after successful setup.
-   */
-  @Post('seed-admin')
-  @ApiOperation({ summary: 'TEMP: Seed first admin user' })
-  async seedAdmin() {
-    return this.authService.seedAdmin();
   }
 }
