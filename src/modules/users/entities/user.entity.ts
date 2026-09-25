@@ -57,6 +57,33 @@ export class User {
   @Column({ type: 'text', nullable: true })
   refreshTokenHash!: string | null;
 
+    /**
+   * Stores only the SHA-256 hash of a password-reset token.
+   *
+   * Security:
+   * - The raw reset token is never stored.
+   * - A reset token is temporary.
+   * - The token becomes unusable after its expiry time.
+   */
+  @Column({
+    name: 'password_reset_token_hash',
+    type: 'text',
+    nullable: true,
+  })
+  passwordResetTokenHash!: string | null;
+
+  /**
+   * Expiry time for the password-reset token.
+   *
+   * A reset token must not be accepted after this timestamp.
+   */
+  @Column({
+    name: 'password_reset_expires_at',
+    type: 'timestamp',
+    nullable: true,
+  })
+  passwordResetExpiresAt!: Date | null;
+
   @Column({
     type: 'varchar',
     length: 30,

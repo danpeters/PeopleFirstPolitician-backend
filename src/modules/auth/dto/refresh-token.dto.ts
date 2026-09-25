@@ -2,16 +2,21 @@
  * File: src/modules/auth/dto/refresh-token.dto.ts
  *
  * Purpose:
- * DTO for refresh token requests.
+ * Defines the request body used to refresh an access token.
  */
 
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
 
 export class RefreshTokenDto {
+  /**
+   * Refresh token previously issued during successful login.
+   */
   @ApiProperty({
-    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-    description: 'Refresh token issued at login',
+    description:
+      'Refresh token issued during successful login',
+    example:
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
   @IsString()
   @IsNotEmpty()

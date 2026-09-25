@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import authConfig from './config/auth.config';
 
 // Import modules
 import { AuthModule } from './modules/auth/auth.module';
@@ -34,8 +35,9 @@ import { GeographyModule } from './modules/geography/geography.module';
   imports: [
     // Load environment variables
     ConfigModule.forRoot({
-      isGlobal: true,
-    }),
+    isGlobal: true,
+    load: [authConfig],
+  }),
 
     // Database connection (Railway + Local)
     TypeOrmModule.forRootAsync({

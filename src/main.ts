@@ -14,11 +14,22 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { DataSource } from 'typeorm';
 
 import { AppModule } from './app.module';
+import { seedDatabase } from './common/seeds/database.seed';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+    /**
+   * DATABASE INITIALISATION
+   *
+   * Ensure required roles and development seed data exist
+   * before the API begins accepting requests.
+   */
+  const dataSource = app.get(DataSource);
+
+  await seedDatabase(dataSource);
 
   /**
    * GLOBAL API PREFIX
@@ -51,28 +62,87 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  const allowedOrigins =
-    configuredCorsOrigins && configuredCorsOrigins.length > 0
-      ? configuredCorsOrigins
-      : ['https://people-first-politician-frontend.vercel.app'];
+    /**
+   * CORS CONFIGURATION
+   *
+   * The API is used from both the production frontend and
+   * local development environments.
+   *
+   * Production:
+   *   https://people-first-politician-frontend.vercel.app
+   *
+   * Local development:
+   *   http://localhost:3000
+   *   http://127.0.0.1:3000
+   *   http://localhost:5173
+   *   http://127.0.0.1:5173
+   *
+   * CORS_ORIGINS can still be supplied through the environment
+   * for additional trusted frontend origins.
+   */
+
+  const defaultCorsOrigins = [
+    'https://people-first-politician-frontend.vercel.app',
+    'https://peoplefirstpolitician.com',
+    'https://www.peoplefirstpolitician.com',
+    'https://people-first-politician-frontend.vercel.app',
+
+    // Local backend / Swagger development
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+
+    // Common local frontend development ports
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ];
+
+  /**
+   * Combine environment-configured origins with the
+   * application's trusted default origins.
+   *
+   * Set CORS_ORIGINS as a comma-separated list when
+   * additional trusted origins are required.
+   */
+  const allowedOrigins = Array.from(
+    new Set([
+      ...defaultCorsOrigins,
+      ...(configuredCorsOrigins ?? []),
+    ]),
+  );
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Allow requests without an Origin header.
-      // This covers tools such as PowerShell, server-to-server requests,
-      // and some non-browser clients.
+      /**
+       * Allow requests without an Origin header.
+       *
+       * This covers:
+       * - PowerShell
+       * - server-to-server requests
+       * - Postman
+       * - some non-browser clients
+       */
       if (!origin) {
         callback(null, true);
         return;
       }
 
+      /**
+       * Allow only explicitly trusted origins.
+       */
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
         return;
       }
 
+      /**
+       * Reject all other browser origins.
+       */
       callback(new Error('CORS origin not allowed'));
     },
+
+    /**
+     * Cookies/credentials are permitted for trusted origins.
+     */
     credentials: true,
   });
 
@@ -83,7 +153,14 @@ async function bootstrap() {
     .setTitle('People First Politician API')
     .setDescription('Backend API documentation')
     .setVersion('1.0')
-    .addBearerAuth()
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+      },
+      'access-token',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

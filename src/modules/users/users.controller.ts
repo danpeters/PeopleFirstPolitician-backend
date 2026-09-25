@@ -4,15 +4,14 @@
  * Purpose:
  * Handles HTTP requests related to user management.
  *
- * Security model:
- * - JwtAuthGuard ensures the requester is authenticated
- * - RolesGuard ensures the requester has the required role
+ * Security:
+ * - JwtAuthGuard requires authentication.
+ * - RolesGuard enforces role-based access.
+ * - Only super_admin can manage users.
  *
- * Access policy:
- * - Only super_admin can manage users
- *
- * Response model:
- * - Uses standard success response format
+ * Soft-delete policy:
+ * - Deleted users are excluded by default.
+ * - includeDeleted=true explicitly includes them.
  */
 
 import {
@@ -38,12 +37,13 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
+import { UsersQueryDto } from './dto/users-query.dto';
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+
 import { buildSuccessResponse } from '../../common/utils/api-response.util';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
@@ -54,24 +54,56 @@ export class UsersController {
 
   /**
    * GET /api/v1/users
-   * Returns users with pagination, search, and sorting.
-   * Access: super_admin only
+   *
+   * The includeDeleted parameter is part of UsersQueryDto.
+   *
+   * This is required because the application's validation rejects
+   * unknown query parameters. Previously includeDeleted was supplied
+   * separately while @Query() used PaginationQueryDto, causing:
+   *
+   * GET /users?...&includeDeleted=true
+   *
+   * to return HTTP 400 Bad Request.
    */
-  @ApiOperation({ summary: 'Get all users (Admin only)' })
+  @ApiOperation({
+    summary: 'Get all users (Admin only)',
+    description:
+      'Returns users with pagination, search, and sorting. Soft-deleted users are excluded by default. Use includeDeleted=true to include them.',
+  })
   @ApiResponse({ status: 200, description: 'Users retrieved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid query parameters' })
   @ApiResponse({ status: 401, description: 'Unauthorized (No token)' })
   @ApiResponse({ status: 403, description: 'Forbidden (Wrong role)' })
   @Roles('super_admin')
   @Get()
-  async findAll(@Query() query: PaginationQueryDto) {
-    const users = await this.usersService.findAll(query);
-    return buildSuccessResponse('Users retrieved successfully', users);
+  async findAll(@Query() query: UsersQueryDto) {
+    /**
+     * Convert the validated query-string value into a boolean.
+     */
+    const showDeleted = query.includeDeleted === 'true';
+
+    /**
+     * Remove the controller-specific flag before passing the
+     * remaining pagination/search/sorting fields to UsersService.
+     */
+    const {
+      includeDeleted: _includeDeleted,
+      ...paginationQuery
+    } = query;
+
+    const users = await this.usersService.findAll(
+      paginationQuery,
+      showDeleted,
+    );
+
+    return buildSuccessResponse(
+      'Users retrieved successfully',
+      users,
+    );
   }
 
   /**
    * GET /api/v1/users/:id
-   * Returns one user by ID.
-   * Access: super_admin only
    */
   @ApiOperation({ summary: 'Get one user by ID (Admin only)' })
   @ApiResponse({ status: 200, description: 'User retrieved successfully' })
@@ -87,8 +119,6 @@ export class UsersController {
 
   /**
    * POST /api/v1/users
-   * Creates a new user.
-   * Access: super_admin only
    */
   @ApiOperation({ summary: 'Create a new user (Admin only)' })
   @ApiResponse({ status: 201, description: 'User created successfully' })
@@ -102,13 +132,15 @@ export class UsersController {
       createUserDto,
       req.user?.userId ?? null,
     );
-    return buildSuccessResponse('User created successfully', createdUser);
+
+    return buildSuccessResponse(
+      'User created successfully',
+      createdUser,
+    );
   }
 
   /**
    * PATCH /api/v1/users/:id
-   * Updates a user's editable details.
-   * Access: super_admin only
    */
   @ApiOperation({ summary: 'Update user details (Admin only)' })
   @ApiResponse({ status: 200, description: 'User updated successfully' })
@@ -127,13 +159,15 @@ export class UsersController {
       updateUserDto,
       req.user?.userId ?? null,
     );
-    return buildSuccessResponse('User updated successfully', updatedUser);
+
+    return buildSuccessResponse(
+      'User updated successfully',
+      updatedUser,
+    );
   }
 
   /**
    * PATCH /api/v1/users/:id/status
-   * Updates user status.
-   * Access: super_admin only
    */
   @ApiOperation({ summary: 'Update user status (Admin only)' })
   @ApiResponse({ status: 200, description: 'User status updated successfully' })
@@ -152,6 +186,7 @@ export class UsersController {
       updateUserStatusDto,
       req.user?.userId ?? null,
     );
+
     return buildSuccessResponse(
       'User status updated successfully',
       updatedUserStatus,
@@ -160,8 +195,8 @@ export class UsersController {
 
   /**
    * DELETE /api/v1/users/:id
-   * Soft-deletes a user.
-   * Access: super_admin only
+   *
+   * Performs a TypeORM soft delete.
    */
   @ApiOperation({ summary: 'Soft delete a user (Admin only)' })
   @ApiResponse({ status: 200, description: 'User deleted successfully' })
@@ -171,14 +206,19 @@ export class UsersController {
   @Roles('super_admin')
   @Delete(':id')
   async remove(@Param('id') id: string, @Request() req: any) {
-    const result = await this.usersService.remove(id, req.user?.userId ?? null);
-    return buildSuccessResponse('User deleted successfully', result);
+    const result = await this.usersService.remove(
+      id,
+      req.user?.userId ?? null,
+    );
+
+    return buildSuccessResponse(
+      'User deleted successfully',
+      result,
+    );
   }
 
   /**
    * POST /api/v1/users/:id/restore
-   * Restores a soft-deleted user.
-   * Access: super_admin only
    */
   @ApiOperation({ summary: 'Restore a deleted user (Admin only)' })
   @ApiResponse({ status: 200, description: 'User restored successfully' })
@@ -192,6 +232,10 @@ export class UsersController {
       id,
       req.user?.userId ?? null,
     );
-    return buildSuccessResponse('User restored successfully', restoredUser);
+
+    return buildSuccessResponse(
+      'User restored successfully',
+      restoredUser,
+    );
   }
 }
