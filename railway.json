@@ -4,6 +4,6 @@
     "buildCommand": "npm install --legacy-peer-deps && npm run build"
   },
   "deploy": {
-    "startCommand": "npm run start:prod"
+    "startCommand": "npm run migration:run && npm run start:prod"
   }
 }
