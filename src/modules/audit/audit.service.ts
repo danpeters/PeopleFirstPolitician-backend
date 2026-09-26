@@ -34,17 +34,105 @@ export class AuditService {
 
   /**
    * Write one audit log record.
+   *
+   * Security:
+   * - Audit details are sanitised before persistence.
+   * - Authentication secrets must never be stored in audit logs.
+   * - Sanitisation is recursive so nested objects are also protected.
    */
   async log(input: CreateAuditLogInput): Promise<AuditLog> {
+    const safeDetails = this.sanitiseAuditDetails(
+      input.details ?? null,
+    );
+
     const auditLog = this.auditRepository.create({
       action: input.action,
       module: input.module,
       actorId: input.actorId ?? null,
       targetId: input.targetId ?? null,
-      details: input.details ?? null,
+      details: safeDetails,
     });
 
     return this.auditRepository.save(auditLog);
+  }
+
+  /**
+   * Remove sensitive authentication fields from audit details.
+   *
+   * Security-sensitive fields:
+   * - password
+   * - passwordHash
+   * - refreshToken
+   * - refreshTokenHash
+   * - passwordResetToken
+   * - passwordResetTokenHash
+   * - accessToken
+   * - token
+   *
+   * The comparison is case-insensitive.
+   */
+  private sanitiseAuditDetails(
+    value: unknown,
+  ): Record<string, unknown> | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    if (
+      typeof value !== 'object' ||
+      Array.isArray(value)
+    ) {
+      return null;
+    }
+
+    const sensitiveFields = new Set([
+      'password',
+      'passwordhash',
+      'refreshtoken',
+      'refreshtokenhash',
+      'passwordresettoken',
+      'passwordresettokenhash',
+      'accesstoken',
+      'token',
+    ]);
+
+    const sanitiseValue = (current: unknown): unknown => {
+      if (Array.isArray(current)) {
+        return current.map((item) =>
+          sanitiseValue(item),
+        );
+      }
+
+      if (
+        current === null ||
+        typeof current !== 'object'
+      ) {
+        return current;
+      }
+
+      const result: Record<string, unknown> = {};
+
+      for (const [key, nestedValue] of Object.entries(
+        current,
+      )) {
+        if (
+          sensitiveFields.has(
+            key.toLowerCase(),
+          )
+        ) {
+          continue;
+        }
+
+        result[key] = sanitiseValue(nestedValue);
+      }
+
+      return result;
+    };
+
+    return sanitiseValue(value) as Record<
+      string,
+      unknown
+    >;
   }
 
   /**

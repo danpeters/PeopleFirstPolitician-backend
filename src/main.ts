@@ -1,5 +1,5 @@
 /**
- * File: src/main.ts
+ * File: C:\Projects\PeopleFirstPolitician\backend\src\main.ts
  *
  * Description:
  * Entry point of the NestJS application.
@@ -13,14 +13,35 @@
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { DataSource } from 'typeorm';
+import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 import { seedDatabase } from './common/seeds/database.seed';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  /**
+   * HTTP SECURITY HEADERS
+   *
+   * Helmet sets security-related HTTP response headers
+   * to reduce exposure to common web security risks.
+   */
+  app.use(helmet());
+
+  /**
+   * GLOBAL HTTP EXCEPTION FILTER
+   *
+   * Security:
+   * - Provides a consistent error response format.
+   * - Prevents unexpected internal exception details from
+   *   being returned to API clients.
+   */
+  app.useGlobalFilters(new HttpExceptionFilter());
     /**
    * DATABASE INITIALISATION
    *

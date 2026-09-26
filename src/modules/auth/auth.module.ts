@@ -50,9 +50,7 @@ import { MailService } from './mail.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret:
-          configService.get<string>('auth.jwtSecret') ??
-          'ChangeThisToAVeryStrongSecretKey123!',
+        secret: configService.getOrThrow<string>('auth.jwtSecret'),
         signOptions: {
           expiresIn:
             (configService.get<string>('auth.jwtExpiresIn') ?? '15m') as SignOptions['expiresIn'],

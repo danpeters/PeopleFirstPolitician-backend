@@ -40,11 +40,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
       /**
        * Must match the JWT signing secret used in AuthModule.
-       * A fallback is provided to satisfy TypeScript and keep development moving.
+       *
+       * Security:
+       * - The secret is required from application configuration.
+       * - No hard-coded fallback secret is permitted.
+       * - Application configuration fails if JWT_SECRET is missing.
        */
-      secretOrKey:
-        configService.get<string>('auth.jwtSecret') ??
-        'ChangeThisToAVeryStrongSecretKey123!',
+      secretOrKey: configService.getOrThrow<string>('auth.jwtSecret'),
     });
   }
 

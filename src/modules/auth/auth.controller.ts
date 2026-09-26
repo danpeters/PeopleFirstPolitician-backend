@@ -1,5 +1,5 @@
 /**
- * File: src/modules/auth/auth.controller.ts
+ * File: C:\Projects\PeopleFirstPolitician\backend\src\modules\auth\auth.controller.ts
  *
  * Purpose:
  * Authentication controller for the People First Politician
@@ -27,6 +27,8 @@
  *   JWT access token.
  * - The authenticated user's ID is obtained from the JWT rather
  *   than accepted from the client request body.
+ * - Sensitive public authentication endpoints have stricter
+ *   rate limits to reduce brute-force and automated abuse.
  */
 
 import {
@@ -45,6 +47,8 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+
+import { Throttle } from '@nestjs/throttler';
 
 import { AuthService } from './auth.service';
 
@@ -74,8 +78,15 @@ export class AuthController {
    * - Public endpoint.
    * - Does not require JWT authentication.
    * - Does not reveal whether the email exists.
+   * - Limited to 5 requests per 60 seconds per client.
    */
   @Post('forgot-password')
+  @Throttle({
+    default: {
+      limit: 5,
+      ttl: 60_000,
+    },
+  })
   @ApiOperation({
     summary: 'Request password-reset instructions',
     description:
@@ -100,8 +111,15 @@ export class AuthController {
    * - Public endpoint.
    * - Does not require an access token.
    * - Token validity and expiry are verified by AuthService.
+   * - Limited to 5 requests per 60 seconds per client.
    */
   @Post('reset-password')
+  @Throttle({
+    default: {
+      limit: 5,
+      ttl: 60_000,
+    },
+  })
   @ApiOperation({
     summary: 'Reset password',
     description:
@@ -127,8 +145,15 @@ export class AuthController {
    * - The registration DTO does not contain a role field.
    * - The backend always assigns the standard USER role.
    * - Administrative roles cannot be selected during registration.
+   * - Limited to 5 requests per 60 seconds per client.
    */
   @Post('register')
+  @Throttle({
+    default: {
+      limit: 5,
+      ttl: 60_000,
+    },
+  })
   @ApiOperation({
     summary: 'Register a new user',
     description:
@@ -148,12 +173,23 @@ export class AuthController {
    * Endpoint:
    * POST /auth/login
    *
+   * Security:
+   * - Public endpoint.
+   * - Limited to 5 requests per 60 seconds per client.
+   * - The limit reduces automated password-guessing attempts.
+   *
    * Returns:
    * - access token
    * - refresh token
    * - safe user information
    */
   @Post('login')
+  @Throttle({
+    default: {
+      limit: 5,
+      ttl: 60_000,
+    },
+  })
   @ApiOperation({
     summary: 'Login user and return access token',
   })
@@ -175,6 +211,7 @@ export class AuthController {
    * - The refresh token is supplied in the request body.
    * - The refresh token is validated by AuthService.
    * - The refresh token is rotated after successful validation.
+   * - Limited to 10 requests per 60 seconds per client.
    *
    * Request body:
    * {
@@ -182,6 +219,12 @@ export class AuthController {
    * }
    */
   @Post('refresh')
+  @Throttle({
+    default: {
+      limit: 10,
+      ttl: 60_000,
+    },
+  })
   @ApiOperation({
     summary: 'Refresh access token',
     description:

@@ -542,6 +542,42 @@ export class UsersService {
     return this.mapUserResponse(user);
   }
 
+    /**
+     * Count active super administrators other than the specified user.
+     *
+     * Security purpose:
+     * - Prevents the system from accidentally or maliciously removing
+     *   the final active super administrator.
+     * - Used before role changes, status changes, and deletion.
+     * - Soft-deleted users are excluded automatically by TypeORM because
+     *   the User entity uses a DeleteDateColumn.
+     *
+     * @param excludedUserId
+     * ID of the super administrator whose privilege/status is being changed
+     * or whose account is being deleted.
+     *
+     * @returns
+     * Number of other active super administrators.
+     */
+    private async countOtherActiveSuperAdmins(
+      excludedUserId: string,
+    ): Promise<number> {
+      return this.userRepository
+        .createQueryBuilder('user')
+        .innerJoin('user.role', 'role')
+        .where('role.name = :roleName', {
+          roleName: RoleEnum.SUPER_ADMIN,
+        })
+        .andWhere('user.status = :status', {
+          status: UserStatusEnum.ACTIVE,
+        })
+        .andWhere('user.id != :excludedUserId', {
+          excludedUserId,
+        })
+        .getCount();
+    }
+
+
   /**
    * Update editable user fields.
    *
@@ -655,6 +691,15 @@ export class UsersService {
       };
 
     /**
+     * Track whether the user's role is actually changing.
+     *
+     * A refresh session must be invalidated when the role changes.
+     * This prevents an existing refresh token from being used to
+     * obtain a new access token with the previous privileges.
+     */
+    let roleChanged = false;
+
+    /**
      * Update the user's role when explicitly requested
      * through an authorised administrative operation.
      */
@@ -672,7 +717,46 @@ export class UsersService {
         );
       }
 
-      user.role = role;
+        /**
+         * Determine whether the user's role is actually changing.
+         */
+        roleChanged = user.role?.id !== role.id;
+
+        /**
+         * Protect the final active super administrator.
+         *
+         * If this user is currently an active super administrator
+         * and the requested role is different, verify that another
+         * active super administrator will remain.
+         */
+        const removingSuperAdminPrivilege =
+          user.role?.name === RoleEnum.SUPER_ADMIN &&
+          user.status === UserStatusEnum.ACTIVE &&
+          role.name !== RoleEnum.SUPER_ADMIN;
+
+        if (removingSuperAdminPrivilege) {
+          const otherActiveSuperAdmins =
+            await this.countOtherActiveSuperAdmins(user.id);
+
+          if (otherActiveSuperAdmins === 0) {
+            throw new ConflictException(
+              'The last active super administrator cannot be removed. Assign another active super administrator before changing this role.',
+            );
+          }
+        }
+
+        user.role = role;
+    }
+
+    /**
+     * Invalidate the user's refresh session when their role changes.
+     *
+     * The existing access token is allowed to expire naturally.
+     * The user cannot use the previous refresh token to obtain
+     * another access token.
+     */
+    if (roleChanged) {
+      user.refreshTokenHash = null;
     }
 
     /**
@@ -761,9 +845,53 @@ export class UsersService {
     }
 
     /**
+     * Determine whether the account status is actually changing.
+     */
+    const statusChanged =
+      user.status !== nextStatus;
+
+    /**
+     * Protect the final active super administrator.
+     *
+     * An active super administrator cannot be changed to
+     * inactive or suspended when no other active super
+     * administrator exists.
+     */
+    const removingActiveSuperAdmin =
+      user.role?.name === RoleEnum.SUPER_ADMIN &&
+      user.status === UserStatusEnum.ACTIVE &&
+      nextStatus !== UserStatusEnum.ACTIVE;
+
+    if (removingActiveSuperAdmin) {
+      const otherActiveSuperAdmins =
+        await this.countOtherActiveSuperAdmins(user.id);
+
+      if (otherActiveSuperAdmins === 0) {
+        throw new ConflictException(
+          'The last active super administrator cannot be deactivated or suspended. Ensure another active super administrator exists first.',
+        );
+      }
+    }
+
+    /**
      * Apply the new status.
      */
     user.status = nextStatus;
+
+    /**
+     * Invalidate the user's refresh session when the account
+     * status changes.
+     *
+     * This prevents an existing refresh token from being used
+     * to obtain a new access token after the account has been
+     * activated, deactivated, or suspended.
+     *
+     * The currently issued access token is allowed to expire
+     * naturally according to its configured lifetime.
+     */
+    if (statusChanged) {
+      user.refreshTokenHash = null;
+    }
 
     /**
      * Save the status change.
@@ -915,6 +1043,41 @@ export class UsersService {
     }
 
     /**
+     * Protect the final active super administrator.
+     *
+     * A super administrator may only be deleted when another
+     * active super administrator will remain in the system.
+     */
+    const deletingActiveSuperAdmin =
+      user.role?.name === RoleEnum.SUPER_ADMIN &&
+      user.status === UserStatusEnum.ACTIVE;
+
+    if (deletingActiveSuperAdmin) {
+      const otherActiveSuperAdmins =
+        await this.countOtherActiveSuperAdmins(user.id);
+
+      if (otherActiveSuperAdmins === 0) {
+        throw new ConflictException(
+          'The last active super administrator cannot be deleted. Assign another active super administrator before deleting this account.',
+        );
+      }
+    }
+
+
+    /**
+     * Invalidate the user's refresh session before soft deletion.
+     *
+     * This prevents the deleted user's refresh token from being
+     * used to obtain a new access token.
+     */
+    await this.userRepository.update(
+      id,
+      {
+        refreshTokenHash: null,
+      },
+    );
+
+    /**
      * Perform the soft deletion.
      */
     await this.userRepository.softDelete(id);
@@ -971,6 +1134,19 @@ export class UsersService {
         'User is not deleted',
       );
     }
+
+    /**
+     * Invalidate any previously issued refresh session.
+     *
+     * Security:
+     * - A previously issued refresh token must not become usable
+     *   merely because a deleted account has been restored.
+     * - The restored user must authenticate again to establish a
+     *   new refresh session.
+     */
+    user.refreshTokenHash = null;
+
+    await this.userRepository.save(user);
 
     /**
      * Restore the account.
@@ -1264,6 +1440,8 @@ export class UsersService {
     const {
       passwordHash,
       refreshTokenHash,
+      passwordResetTokenHash,
+      passwordResetExpiresAt,
       ...safeUser
     } = user;
 
