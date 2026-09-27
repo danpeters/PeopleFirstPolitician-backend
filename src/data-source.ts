@@ -1,5 +1,5 @@
 /**
- * File: src/data-source.ts
+ * File: C:\Projects\PeopleFirstPolitician\backend\src\data-source.ts
  *
  * Purpose:
  * TypeORM CLI DataSource configuration.
@@ -10,6 +10,12 @@
  * - Migration generation
  *
  * It does NOT initialise the NestJS application.
+ *
+ * Multi-tenant security:
+ * - Organisation and OrganisationMembership entities are registered
+ *   so that TypeORM can manage the multi-tenant security foundation.
+ * - Tenant-owned records will be scoped to their organisation.
+ * - Database schema changes must be applied through explicit migrations.
  */
 
 import 'dotenv/config';
@@ -21,6 +27,8 @@ import { Lga } from './modules/geography/entities/lga.entity';
 import { PollingUnit } from './modules/geography/entities/polling-unit.entity';
 import { State } from './modules/geography/entities/state.entity';
 import { Ward } from './modules/geography/entities/ward.entity';
+import { Organisation } from './modules/organisations/entities/organisation.entity';
+import { OrganisationMembership } from './modules/organisations/entities/organisation-membership.entity';
 import { Permission } from './modules/roles/entities/permission.entity';
 import { Role } from './modules/roles/entities/role.entity';
 import { User } from './modules/users/entities/user.entity';
@@ -50,6 +58,8 @@ export default new DataSource({
     PollingUnit,
     State,
     Ward,
+    Organisation,
+    OrganisationMembership,
     Permission,
     Role,
     User,
@@ -60,7 +70,7 @@ export default new DataSource({
   synchronize: false,
 
   logging: !isProduction,
-  
+
   ...(databaseUrl && {
     ssl: {
       rejectUnauthorized: false,
