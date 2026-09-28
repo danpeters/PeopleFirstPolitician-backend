@@ -1,0 +1,510 @@
+@'
+/**
+ * File:
+ * C:\Projects\PeopleFirstPolitician\backend\src\modules\campaign-memberships\campaign-memberships.service.spec.ts
+ *
+ * Unit tests for CampaignMembershipsService.
+ *
+ * These tests verify campaign membership creation, campaign-management
+ * authorisation, campaign-access authorisation, and membership lookup.
+ */
+
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  CampaignMembershipRole,
+  CampaignMembershipStatus,
+} from './entities/campaign-membership.entity';
+import { CampaignMembershipsService } from './campaign-memberships.service';
+
+describe('CampaignMembershipsService', () => {
+  let service: CampaignMembershipsService;
+
+  const campaignRepository = {
+    findOne: jest.fn(),
+  };
+
+  const userRepository = {
+    findOne: jest.fn(),
+  };
+
+  const organisationMembershipRepository = {
+    findOne: jest.fn(),
+  };
+
+  const repository = {
+    findOne: jest.fn(),
+    find: jest.fn(),
+    create: jest.fn(),
+    save: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    service = new CampaignMembershipsService(
+      repository as any,
+      campaignRepository as any,
+      userRepository as any,
+      organisationMembershipRepository as any,
+    );
+  });
+
+  describe('create', () => {
+    const campaign = {
+      id: 'campaign-1',
+      organisationId: 'organisation-1',
+    };
+
+    const user = {
+      id: 'user-1',
+    };
+
+    const organisationMembership = {
+      id: 'organisation-membership-1',
+      organisationId: 'organisation-1',
+      userId: 'user-1',
+      status: 'active',
+    };
+
+    it('should create a campaign membership', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      userRepository.findOne.mockResolvedValue(user);
+      organisationMembershipRepository.findOne.mockResolvedValue(
+        organisationMembership,
+      );
+      repository.findOne.mockResolvedValue(null);
+
+      const entity = {
+        id: 'membership-1',
+        campaignId: 'campaign-1',
+        userId: 'user-1',
+        role: CampaignMembershipRole.MEMBER,
+        status: CampaignMembershipStatus.ACTIVE,
+        managerMembershipId: null,
+        joinedAt: null,
+      };
+
+      repository.create.mockReturnValue(entity);
+      repository.save.mockResolvedValue(entity);
+
+      await expect(
+        service.create({
+          campaignId: 'campaign-1',
+          userId: 'user-1',
+        }),
+      ).resolves.toEqual(entity);
+
+      expect(repository.create).toHaveBeenCalled();
+      expect(repository.save).toHaveBeenCalledWith(entity);
+    });
+
+    it('should reject when the campaign does not exist', async () => {
+      campaignRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.create({
+          campaignId: 'missing-campaign',
+          userId: 'user-1',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('should reject when the user does not exist', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      userRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.create({
+          campaignId: 'campaign-1',
+          userId: 'missing-user',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('should reject when the user is not an active member of the campaign organisation', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      userRepository.findOne.mockResolvedValue(user);
+      organisationMembershipRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.create({
+          campaignId: 'campaign-1',
+          userId: 'user-1',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('should reject a duplicate campaign membership', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      userRepository.findOne.mockResolvedValue(user);
+      organisationMembershipRepository.findOne.mockResolvedValue(
+        organisationMembership,
+      );
+      repository.findOne.mockResolvedValue({
+        id: 'existing-membership',
+        campaignId: 'campaign-1',
+        userId: 'user-1',
+      });
+
+      await expect(
+        service.create({
+          campaignId: 'campaign-1',
+          userId: 'user-1',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('should reject when the manager membership does not exist in the same campaign', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      userRepository.findOne.mockResolvedValue(user);
+      organisationMembershipRepository.findOne.mockResolvedValue(
+        organisationMembership,
+      );
+      repository.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+
+      await expect(
+        service.create({
+          campaignId: 'campaign-1',
+          userId: 'user-1',
+          managerMembershipId: 'missing-manager',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('should reject when the manager membership is not active', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      userRepository.findOne.mockResolvedValue(user);
+      organisationMembershipRepository.findOne.mockResolvedValue(
+        organisationMembership,
+      );
+      repository.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: 'manager-1',
+          campaignId: 'campaign-1',
+          status: CampaignMembershipStatus.SUSPENDED,
+        });
+
+      await expect(
+        service.create({
+          campaignId: 'campaign-1',
+          userId: 'user-1',
+          managerMembershipId: 'manager-1',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('should accept a valid active manager membership from the same campaign', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      userRepository.findOne.mockResolvedValue(user);
+      organisationMembershipRepository.findOne.mockResolvedValue(
+        organisationMembership,
+      );
+
+      const manager = {
+        id: 'manager-1',
+        campaignId: 'campaign-1',
+        status: CampaignMembershipStatus.ACTIVE,
+      };
+
+      repository.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(manager);
+
+      const entity = {
+        id: 'membership-1',
+        campaignId: 'campaign-1',
+        userId: 'user-1',
+        role: CampaignMembershipRole.FIELD_COORDINATOR,
+        status: CampaignMembershipStatus.ACTIVE,
+        managerMembershipId: 'manager-1',
+        joinedAt: null,
+      };
+
+      repository.create.mockReturnValue(entity);
+      repository.save.mockResolvedValue(entity);
+
+      await expect(
+        service.create({
+          campaignId: 'campaign-1',
+          userId: 'user-1',
+          role: CampaignMembershipRole.FIELD_COORDINATOR,
+          managerMembershipId: 'manager-1',
+        }),
+      ).resolves.toEqual(entity);
+    });
+  });
+
+  describe('assertCanManageCampaign', () => {
+    const campaign = {
+      id: 'campaign-1',
+      organisationId: 'organisation-1',
+    };
+
+    it('should allow a super admin', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+
+      await expect(
+        service.assertCanManageCampaign(
+          'campaign-1',
+          'user-1',
+          'super_admin',
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('should reject when the campaign does not exist', async () => {
+      campaignRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.assertCanManageCampaign(
+          'missing-campaign',
+          'user-1',
+          'user',
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('should reject when the requester is not an active organisation member', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      organisationMembershipRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.assertCanManageCampaign(
+          'campaign-1',
+          'user-1',
+          'user',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('should reject when the requester has no active campaign membership', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      organisationMembershipRepository.findOne.mockResolvedValue({
+        id: 'org-membership-1',
+        organisationId: 'organisation-1',
+        userId: 'user-1',
+        status: 'active',
+      });
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.assertCanManageCampaign(
+          'campaign-1',
+          'user-1',
+          'user',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('should reject when the requester is an active campaign member but not a campaign manager', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      organisationMembershipRepository.findOne.mockResolvedValue({
+        id: 'org-membership-1',
+        organisationId: 'organisation-1',
+        userId: 'user-1',
+        status: 'active',
+      });
+      repository.findOne.mockResolvedValue({
+        id: 'membership-1',
+        campaignId: 'campaign-1',
+        userId: 'user-1',
+        role: CampaignMembershipRole.DATA_OFFICER,
+        status: CampaignMembershipStatus.ACTIVE,
+      });
+
+      await expect(
+        service.assertCanManageCampaign(
+          'campaign-1',
+          'user-1',
+          'user',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('should allow an active campaign manager', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      organisationMembershipRepository.findOne.mockResolvedValue({
+        id: 'org-membership-1',
+        organisationId: 'organisation-1',
+        userId: 'user-1',
+        status: 'active',
+      });
+      repository.findOne.mockResolvedValue({
+        id: 'membership-1',
+        campaignId: 'campaign-1',
+        userId: 'user-1',
+        role: CampaignMembershipRole.CAMPAIGN_MANAGER,
+        status: CampaignMembershipStatus.ACTIVE,
+      });
+
+      await expect(
+        service.assertCanManageCampaign(
+          'campaign-1',
+          'user-1',
+          'user',
+        ),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('assertCanAccessCampaign', () => {
+    const campaign = {
+      id: 'campaign-1',
+      organisationId: 'organisation-1',
+    };
+
+    it('should allow a super admin', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+
+      await expect(
+        service.assertCanAccessCampaign(
+          'campaign-1',
+          'user-1',
+          'super_admin',
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('should reject when the campaign does not exist', async () => {
+      campaignRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.assertCanAccessCampaign(
+          'missing-campaign',
+          'user-1',
+          'user',
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('should reject when the requester is not an active organisation member', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      organisationMembershipRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.assertCanAccessCampaign(
+          'campaign-1',
+          'user-1',
+          'user',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('should reject when the requester has no active campaign membership', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      organisationMembershipRepository.findOne.mockResolvedValue({
+        id: 'org-membership-1',
+        organisationId: 'organisation-1',
+        userId: 'user-1',
+        status: 'active',
+      });
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.assertCanAccessCampaign(
+          'campaign-1',
+          'user-1',
+          'user',
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('should allow an active campaign member', async () => {
+      campaignRepository.findOne.mockResolvedValue(campaign);
+      organisationMembershipRepository.findOne.mockResolvedValue({
+        id: 'org-membership-1',
+        organisationId: 'organisation-1',
+        userId: 'user-1',
+        status: 'active',
+      });
+      repository.findOne.mockResolvedValue({
+        id: 'membership-1',
+        campaignId: 'campaign-1',
+        userId: 'user-1',
+        role: CampaignMembershipRole.MEMBER,
+        status: CampaignMembershipStatus.ACTIVE,
+      });
+
+      await expect(
+        service.assertCanAccessCampaign(
+          'campaign-1',
+          'user-1',
+          'user',
+        ),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('findById', () => {
+    it('should return a campaign membership by id', async () => {
+      const membership = {
+        id: 'membership-1',
+        campaignId: 'campaign-1',
+        userId: 'user-1',
+      };
+
+      repository.findOne.mockResolvedValue(membership);
+
+      await expect(service.findById('membership-1')).resolves.toEqual(
+        membership,
+      );
+
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { id: 'membership-1' },
+      });
+    });
+
+    it('should throw when the membership does not exist', async () => {
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findById('missing-membership'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('findByCampaignId', () => {
+    it('should reject when the campaign does not exist', async () => {
+      campaignRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findByCampaignId('missing-campaign'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('should return memberships for an existing campaign', async () => {
+      campaignRepository.findOne.mockResolvedValue({
+        id: 'campaign-1',
+        organisationId: 'organisation-1',
+      });
+
+      const memberships = [
+        {
+          id: 'membership-1',
+          campaignId: 'campaign-1',
+          userId: 'user-1',
+        },
+      ];
+
+      repository.find.mockResolvedValue(memberships);
+
+      await expect(
+        service.findByCampaignId('campaign-1'),
+      ).resolves.toEqual(memberships);
+
+      expect(repository.find).toHaveBeenCalledWith({
+        where: { campaignId: 'campaign-1' },
+        order: { createdAt: 'ASC' },
+      });
+    });
+  });
+});
+'@ | Set-Content `
+  ".\src\modules\campaign-memberships\campaign-memberships.service.spec.ts" `
+  -Encoding UTF8

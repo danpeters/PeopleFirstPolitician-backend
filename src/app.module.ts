@@ -42,6 +42,7 @@ import { UsersModule } from './modules/users/users.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { GeographyModule } from './modules/geography/geography.module';
+import { CampaignMembershipsModule } from './modules/campaign-memberships/campaign-memberships.module';
 
 @Module({
   imports: [
@@ -144,6 +145,7 @@ import { GeographyModule } from './modules/geography/geography.module';
     RolesModule,
     AuditModule,
     GeographyModule,
+    CampaignMembershipsModule,
   ],
 
   controllers: [

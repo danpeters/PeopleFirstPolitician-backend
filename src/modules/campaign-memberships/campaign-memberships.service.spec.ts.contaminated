@@ -1,0 +1,608 @@
+@'
+/**
+ * File:
+ * C:\Projects\PeopleFirstPolitician\backend\src\modules\campaign-memberships\campaign-memberships.controller.spec.ts
+ *
+ * Purpose:
+ * Unit tests for CampaignMembershipsController.
+ *
+ * Security coverage:
+ * - Requester identity comes from request.user.
+ * - Campaign-level authorisation is performed before creation.
+ * - Campaign-level access authorisation is performed before reads.
+ * - Requester cannot be supplied through the request body.
+ * - Successful membership creation returns the standard response.
+ * - A membership can only be retrieved after campaign access is authorised.
+ * - Campaign membership listings can only be retrieved after campaign access
+ *   is authorised.
+ * - Authorisation failures prevent service operations from proceeding.
+ * - Missing authenticated-user information is rejected.
+ * - super_admin requests reach the service authorisation layer.
+ *
+ * Note:
+ * These are controller unit tests. They do not connect to the database.
+ */
+
+import { CampaignMembershipsController } from './campaign-memberships.controller';
+
+import {
+  CampaignMembershipRole,
+  CampaignMembershipStatus,
+} from './entities/campaign-membership.entity';
+
+describe('CampaignMembershipsController', () => {
+  let controller: CampaignMembershipsController;
+
+  const campaignMembershipsServiceMock = {
+    assertCanManageCampaign: jest.fn(),
+    assertCanAccessCampaign: jest.fn(),
+    create: jest.fn(),
+    findById: jest.fn(),
+    findByCampaignId: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+
+    controller = new CampaignMembershipsController(
+      campaignMembershipsServiceMock as any,
+    );
+  });
+
+  describe('create()', () => {
+    const dto = {
+      campaignId: 'campaign-id',
+      userId: 'target-user-id',
+      role: CampaignMembershipRole.MEMBER,
+      managerMembershipId: 'manager-membership-id',
+      joinedAt: '2026-09-27T16:00:00.000Z',
+    };
+
+    const createdMembership = {
+      id: 'membership-id',
+      campaignId: 'campaign-id',
+      userId: 'target-user-id',
+      role: CampaignMembershipRole.MEMBER,
+      status: CampaignMembershipStatus.ACTIVE,
+      managerMembershipId: 'manager-membership-id',
+    };
+
+    it('should authorise the requester before creating a Campaign Membership', async () => {
+      campaignMembershipsServiceMock.create.mockResolvedValue(
+        createdMembership,
+      );
+
+      const request = {
+        user: {
+          userId: 'requester-user-id',
+          email: 'manager@example.com',
+          role: 'campaign_manager',
+        },
+      };
+
+      const result = await controller.create(dto, request);
+
+      expect(
+        campaignMembershipsServiceMock.assertCanManageCampaign,
+      ).toHaveBeenCalledWith(
+        'campaign-id',
+        'requester-user-id',
+        'campaign_manager',
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanManageCampaign.mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(
+        campaignMembershipsServiceMock.create.mock.invocationCallOrder[0],
+      );
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Campaign Membership created successfully',
+        data: createdMembership,
+      });
+    });
+
+    it('should never use a requester userId supplied in the DTO', async () => {
+      campaignMembershipsServiceMock.create.mockResolvedValue(
+        createdMembership,
+      );
+
+      const maliciousDto = {
+        ...dto,
+        requesterUserId: 'attacker-supplied-id',
+      };
+
+      const request = {
+        user: {
+          userId: 'authenticated-requester-id',
+          email: 'manager@example.com',
+          role: 'campaign_manager',
+        },
+      };
+
+      await controller.create(maliciousDto as any, request);
+
+      expect(
+        campaignMembershipsServiceMock.assertCanManageCampaign,
+      ).toHaveBeenCalledWith(
+        'campaign-id',
+        'authenticated-requester-id',
+        'campaign_manager',
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanManageCampaign,
+      ).not.toHaveBeenCalledWith(
+        'campaign-id',
+        'attacker-supplied-id',
+        'campaign_manager',
+      );
+    });
+
+    it('should pass the target membership data to the service', async () => {
+      campaignMembershipsServiceMock.create.mockResolvedValue(
+        createdMembership,
+      );
+
+      const request = {
+        user: {
+          userId: 'requester-user-id',
+          email: 'manager@example.com',
+          role: 'campaign_manager',
+        },
+      };
+
+      await controller.create(dto, request);
+
+      expect(campaignMembershipsServiceMock.create).toHaveBeenCalledWith({
+        campaignId: 'campaign-id',
+        userId: 'target-user-id',
+        role: CampaignMembershipRole.MEMBER,
+        managerMembershipId: 'manager-membership-id',
+        joinedAt: new Date('2026-09-27T16:00:00.000Z'),
+      });
+    });
+
+    it('should omit joinedAt when it is not supplied', async () => {
+      campaignMembershipsServiceMock.create.mockResolvedValue(
+        createdMembership,
+      );
+
+      const request = {
+        user: {
+          userId: 'requester-user-id',
+          email: 'manager@example.com',
+          role: 'campaign_manager',
+        },
+      };
+
+      const dtoWithoutJoinedAt = {
+        campaignId: 'campaign-id',
+        userId: 'target-user-id',
+        role: CampaignMembershipRole.MEMBER,
+      };
+
+      await controller.create(dtoWithoutJoinedAt, request);
+
+      expect(campaignMembershipsServiceMock.create).toHaveBeenCalledWith({
+        campaignId: 'campaign-id',
+        userId: 'target-user-id',
+        role: CampaignMembershipRole.MEMBER,
+        managerMembershipId: undefined,
+        joinedAt: undefined,
+      });
+    });
+
+    it('should propagate an authorisation failure without creating a membership', async () => {
+      campaignMembershipsServiceMock.assertCanManageCampaign.mockRejectedValue(
+        new Error('Access denied'),
+      );
+
+      const request = {
+        user: {
+          userId: 'unauthorised-user-id',
+          email: 'user@example.com',
+          role: 'user',
+        },
+      };
+
+      await expect(
+        controller.create(dto, request),
+      ).rejects.toThrow('Access denied');
+
+      expect(
+        campaignMembershipsServiceMock.create,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should reject a request with no authenticated user information', async () => {
+      await expect(
+        controller.create(dto, {}),
+      ).rejects.toThrow(
+        'Authenticated user information is missing.',
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanManageCampaign,
+      ).not.toHaveBeenCalled();
+
+      expect(
+        campaignMembershipsServiceMock.create,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should allow a super_admin requester to reach the service authorisation layer', async () => {
+      campaignMembershipsServiceMock.create.mockResolvedValue(
+        createdMembership,
+      );
+
+      const request = {
+        user: {
+          userId: 'admin-user-id',
+          email: 'admin@example.com',
+          role: 'super_admin',
+        },
+      };
+
+      await controller.create(dto, request);
+
+      expect(
+        campaignMembershipsServiceMock.assertCanManageCampaign,
+      ).toHaveBeenCalledWith(
+        'campaign-id',
+        'admin-user-id',
+        'super_admin',
+      );
+    });
+  });
+
+  describe('findById()', () => {
+    const membership = {
+      id: 'membership-id',
+      campaignId: 'campaign-id',
+      userId: 'target-user-id',
+      role: CampaignMembershipRole.MEMBER,
+      status: CampaignMembershipStatus.ACTIVE,
+    };
+
+    it('should authorise campaign access before retrieving a membership', async () => {
+      campaignMembershipsServiceMock.findById.mockResolvedValue(
+        membership,
+      );
+
+      const request = {
+        user: {
+          userId: 'requester-user-id',
+          email: 'manager@example.com',
+          role: 'campaign_manager',
+        },
+      };
+
+      const result = await controller.findById(
+        'membership-id',
+        'campaign-id',
+        request,
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign,
+      ).toHaveBeenCalledWith(
+        'campaign-id',
+        'requester-user-id',
+        'campaign_manager',
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign.mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(
+        campaignMembershipsServiceMock.findById.mock.invocationCallOrder[0],
+      );
+
+      expect(
+        campaignMembershipsServiceMock.findById,
+      ).toHaveBeenCalledWith('membership-id');
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Campaign Membership retrieved successfully',
+        data: membership,
+      });
+    });
+
+    it('should use the authenticated requester rather than client-supplied identity', async () => {
+      campaignMembershipsServiceMock.findById.mockResolvedValue(
+        membership,
+      );
+
+      const request = {
+        user: {
+          userId: 'authenticated-user-id',
+          email: 'manager@example.com',
+          role: 'campaign_manager',
+        },
+      };
+
+      await controller.findById(
+        'membership-id',
+        'campaign-id',
+        request,
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign,
+      ).toHaveBeenCalledWith(
+        'campaign-id',
+        'authenticated-user-id',
+        'campaign_manager',
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign,
+      ).not.toHaveBeenCalledWith(
+        'campaign-id',
+        'attacker-user-id',
+        'campaign_manager',
+      );
+    });
+
+    it('should not retrieve the membership if campaign access authorisation fails', async () => {
+      campaignMembershipsServiceMock.assertCanAccessCampaign.mockRejectedValue(
+        new Error('Campaign access denied'),
+      );
+
+      const request = {
+        user: {
+          userId: 'unauthorised-user-id',
+          email: 'user@example.com',
+          role: 'user',
+        },
+      };
+
+      await expect(
+        controller.findById(
+          'membership-id',
+          'campaign-id',
+          request,
+        ),
+      ).rejects.toThrow('Campaign access denied');
+
+      expect(
+        campaignMembershipsServiceMock.findById,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should reject a request with no authenticated user information', async () => {
+      await expect(
+        controller.findById(
+          'membership-id',
+          'campaign-id',
+          {},
+        ),
+      ).rejects.toThrow(
+        'Authenticated user information is missing.',
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign,
+      ).not.toHaveBeenCalled();
+
+      expect(
+        campaignMembershipsServiceMock.findById,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should allow a super_admin requester to reach the service authorisation layer', async () => {
+      campaignMembershipsServiceMock.findById.mockResolvedValue(
+        membership,
+      );
+
+      const request = {
+        user: {
+          userId: 'admin-user-id',
+          email: 'admin@example.com',
+          role: 'super_admin',
+        },
+      };
+
+      await controller.findById(
+        'membership-id',
+        'campaign-id',
+        request,
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign,
+      ).toHaveBeenCalledWith(
+        'campaign-id',
+        'admin-user-id',
+        'super_admin',
+      );
+    });
+
+    it('should pass the membership id unchanged to the service', async () => {
+      campaignMembershipsServiceMock.findById.mockResolvedValue(
+        membership,
+      );
+
+      const request = {
+        user: {
+          userId: 'requester-user-id',
+          email: 'manager@example.com',
+          role: 'campaign_manager',
+        },
+      };
+
+      await controller.findById(
+        'membership-123',
+        'campaign-id',
+        request,
+      );
+
+      expect(
+        campaignMembershipsServiceMock.findById,
+      ).toHaveBeenCalledWith('membership-123');
+    });
+  });
+
+  describe('findByCampaign()', () => {
+    const memberships = [
+      {
+        id: 'membership-1',
+        campaignId: 'campaign-id',
+        userId: 'user-1',
+        role: CampaignMembershipRole.MEMBER,
+        status: CampaignMembershipStatus.ACTIVE,
+      },
+      {
+        id: 'membership-2',
+        campaignId: 'campaign-id',
+        userId: 'user-2',
+        role: CampaignMembershipRole.DATA_OFFICER,
+        status: CampaignMembershipStatus.ACTIVE,
+      },
+    ];
+
+    it('should authorise campaign access before listing memberships', async () => {
+      campaignMembershipsServiceMock.findByCampaignId.mockResolvedValue(
+        memberships,
+      );
+
+      const request = {
+        user: {
+          userId: 'requester-user-id',
+          email: 'manager@example.com',
+          role: 'campaign_manager',
+        },
+      };
+
+      const result = await controller.findByCampaign(
+        'campaign-id',
+        request,
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign,
+      ).toHaveBeenCalledWith(
+        'campaign-id',
+        'requester-user-id',
+        'campaign_manager',
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign.mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(
+        campaignMembershipsServiceMock.findByCampaignId.mock
+          .invocationCallOrder[0],
+      );
+
+      expect(
+        campaignMembershipsServiceMock.findByCampaignId,
+      ).toHaveBeenCalledWith('campaign-id');
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Campaign Memberships retrieved successfully',
+        data: memberships,
+      });
+    });
+
+    it('should pass the requested campaign id unchanged to the service', async () => {
+      campaignMembershipsServiceMock.findByCampaignId.mockResolvedValue(
+        memberships,
+      );
+
+      const request = {
+        user: {
+          userId: 'requester-user-id',
+          email: 'manager@example.com',
+          role: 'campaign_manager',
+        },
+      };
+
+      await controller.findByCampaign(
+        'campaign-456',
+        request,
+      );
+
+      expect(
+        campaignMembershipsServiceMock.findByCampaignId,
+      ).toHaveBeenCalledWith('campaign-456');
+    });
+
+    it('should not list memberships if campaign access authorisation fails', async () => {
+      campaignMembershipsServiceMock.assertCanAccessCampaign.mockRejectedValue(
+        new Error('Campaign access denied'),
+      );
+
+      const request = {
+        user: {
+          userId: 'unauthorised-user-id',
+          email: 'user@example.com',
+          role: 'user',
+        },
+      };
+
+      await expect(
+        controller.findByCampaign(
+          'campaign-id',
+          request,
+        ),
+      ).rejects.toThrow('Campaign access denied');
+
+      expect(
+        campaignMembershipsServiceMock.findByCampaignId,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should reject a request with no authenticated user information', async () => {
+      await expect(
+        controller.findByCampaign(
+          'campaign-id',
+          {},
+        ),
+      ).rejects.toThrow(
+        'Authenticated user information is missing.',
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign,
+      ).not.toHaveBeenCalled();
+
+      expect(
+        campaignMembershipsServiceMock.findByCampaignId,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should allow a super_admin requester to reach the service authorisation layer', async () => {
+      campaignMembershipsServiceMock.findByCampaignId.mockResolvedValue(
+        memberships,
+      );
+
+      const request = {
+        user: {
+          userId: 'admin-user-id',
+          email: 'admin@example.com',
+          role: 'super_admin',
+        },
+      };
+
+      await controller.findByCampaign(
+        'campaign-id',
+        request,
+      );
+
+      expect(
+        campaignMembershipsServiceMock.assertCanAccessCampaign,
+      ).toHaveBeenCalledWith(
+        'campaign-id',
+        'admin-user-id',
+        'super_admin',
+      );
+    });
+  });
+});
+'@ | Set-Content .\src\modules\campaign-memberships\campaign-memberships.controller.spec.ts -Encoding UTF8

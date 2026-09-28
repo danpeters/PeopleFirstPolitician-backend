@@ -1,0 +1,381 @@
+/**
+ * File:
+ * C:\Projects\PeopleFirstPolitician\backend\src\modules\campaign-memberships\campaign-memberships.service.ts
+ *
+ * Purpose:
+ * Provides business, access-control and security rules for
+ * Campaign Membership.
+ *
+ * Security model:
+ *
+ * User
+ *   ↓
+ * OrganisationMembership
+ *   ↓
+ * Organisation
+ *   ↓
+ * Campaign
+ *   ↓
+ * CampaignMembership
+ *
+ * A user's membership of an Organisation does not automatically grant
+ * access to every Campaign belonging to that Organisation.
+ *
+ * Campaign-level administration is restricted to:
+ * - super_admin platform users; or
+ * - active campaign_manager members of the specific Campaign who also
+ *   have an active Organisation Membership in the Campaign's Organisation.
+ *
+ * Campaign-level read access is restricted to:
+ * - super_admin platform users; or
+ * - active members of the specific Campaign who also have an active
+ *   Organisation Membership in the Campaign's Organisation.
+ *
+ * Before a Campaign Membership is created, the service verifies:
+ * 1. The Campaign exists.
+ * 2. The User exists.
+ * 3. The User has an ACTIVE Organisation Membership in the
+ *    Campaign's Organisation.
+ * 4. The User is not already a member of the Campaign.
+ * 5. If a manager is supplied, that manager is ACTIVE and belongs
+ *    to the same Campaign.
+ *
+ * Important:
+ * - Database constraints remain the final integrity boundary.
+ * - Service validation provides clearer business-level errors.
+ * - Access remains restricted to the specific Campaign.
+ * - Organisation membership status is re-checked whenever Campaign
+ *   access is authorised.
+ */
+
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+
+import {
+  CampaignMembership,
+  CampaignMembershipRole,
+  CampaignMembershipStatus,
+} from './entities/campaign-membership.entity';
+
+import { Campaign } from '../campaigns/entities/campaign.entity';
+
+import {
+  OrganisationMembership,
+  OrganisationMembershipStatus,
+} from '../organisations/entities/organisation-membership.entity';
+
+import { User } from '../users/entities/user.entity';
+
+@Injectable()
+export class CampaignMembershipsService {
+  constructor(
+    @InjectRepository(CampaignMembership)
+    private readonly campaignMembershipRepository: Repository<CampaignMembership>,
+
+    @InjectRepository(Campaign)
+    private readonly campaignRepository: Repository<Campaign>,
+
+    @InjectRepository(OrganisationMembership)
+    private readonly organisationMembershipRepository: Repository<OrganisationMembership>,
+
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
+
+  /**
+   * Creates a Campaign Membership.
+   *
+   * Security requirements:
+   * - Campaign must exist.
+   * - User must exist.
+   * - User must have an active Organisation Membership
+   *   in the Campaign's Organisation.
+   * - User must not already belong to the Campaign.
+   * - Supplied manager must be an active member of the same Campaign.
+   */
+  async create(params: {
+    campaignId: string;
+    userId: string;
+    role?: CampaignMembershipRole;
+    managerMembershipId?: string | null;
+    joinedAt?: Date | null;
+  }): Promise<CampaignMembership> {
+    const {
+      campaignId,
+      userId,
+      role = CampaignMembershipRole.MEMBER,
+      managerMembershipId = null,
+      joinedAt = new Date(),
+    } = params;
+
+    const campaign = await this.campaignRepository.findOne({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException('Campaign not found.');
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found.');
+    }
+
+    const organisationMembership =
+      await this.organisationMembershipRepository.findOne({
+        where: {
+          organisationId: campaign.organisationId,
+          userId,
+          status: OrganisationMembershipStatus.ACTIVE,
+        },
+      });
+
+    if (!organisationMembership) {
+      throw new ConflictException(
+        'User must have an active Organisation Membership before joining this Campaign.',
+      );
+    }
+
+    const existingMembership =
+      await this.campaignMembershipRepository.findOne({
+        where: {
+          campaignId,
+          userId,
+        },
+      });
+
+    if (existingMembership) {
+      throw new ConflictException(
+        'User is already a member of this Campaign.',
+      );
+    }
+
+    let managerMembership: CampaignMembership | null = null;
+
+    if (managerMembershipId) {
+      managerMembership = await this.campaignMembershipRepository.findOne({
+        where: {
+          id: managerMembershipId,
+          campaignId,
+          status: CampaignMembershipStatus.ACTIVE,
+        },
+      });
+
+      if (!managerMembership) {
+        throw new ConflictException(
+          'The selected manager must be an active member of the same Campaign.',
+        );
+      }
+    }
+
+    const membership = this.campaignMembershipRepository.create({
+      campaignId,
+      userId,
+      role,
+      status: CampaignMembershipStatus.ACTIVE,
+      managerMembershipId: managerMembership?.id ?? null,
+      joinedAt,
+    });
+
+    return this.campaignMembershipRepository.save(membership);
+  }
+
+  /**
+   * Determines whether an authenticated user can administer
+   * Campaign Memberships for a specific Campaign.
+   *
+   * Authorised users:
+   * - super_admin platform role; or
+   * - active campaign_manager membership in that Campaign AND
+   *   active Organisation Membership in the Campaign's Organisation.
+   *
+   * Campaign Membership roles such as member, data_officer,
+   * field_coordinator and campaign_coordinator do not receive
+   * Campaign Membership administration authority through this method.
+   */
+  async assertCanManageCampaign(
+    campaignId: string,
+    requesterUserId: string,
+    requesterPlatformRole?: string,
+  ): Promise<void> {
+    const campaign = await this.campaignRepository.findOne({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException('Campaign not found.');
+    }
+
+    /**
+     * Platform super administrators can administer any existing
+     * Campaign.
+     */
+    if (requesterPlatformRole === 'super_admin') {
+      return;
+    }
+
+    /**
+     * Confirm that the requester still has an active
+     * Organisation Membership in the Campaign's Organisation.
+     */
+    const organisationMembership =
+      await this.organisationMembershipRepository.findOne({
+        where: {
+          organisationId: campaign.organisationId,
+          userId: requesterUserId,
+          status: OrganisationMembershipStatus.ACTIVE,
+        },
+      });
+
+    if (!organisationMembership) {
+      throw new ForbiddenException(
+        'Access denied: your Organisation Membership is not active for this Campaign.',
+      );
+    }
+
+    /**
+     * All other users must have an active Campaign Membership
+     * with the campaign_manager role in this specific Campaign.
+     */
+    const requesterMembership =
+      await this.campaignMembershipRepository.findOne({
+        where: {
+          campaignId,
+          userId: requesterUserId,
+          role: CampaignMembershipRole.CAMPAIGN_MANAGER,
+          status: CampaignMembershipStatus.ACTIVE,
+        },
+      });
+
+    if (!requesterMembership) {
+      throw new ForbiddenException(
+        'Access denied: you are not authorised to manage this Campaign.',
+      );
+    }
+  }
+
+  /**
+   * Determines whether an authenticated user can access
+   * Campaign information.
+   *
+   * Authorised users:
+   * - super_admin platform role; or
+   * - active Campaign member with an active Organisation Membership
+   *   in the Campaign's Organisation.
+   */
+  async assertCanAccessCampaign(
+    campaignId: string,
+    requesterUserId: string,
+    requesterPlatformRole?: string,
+  ): Promise<void> {
+    const campaign = await this.campaignRepository.findOne({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException('Campaign not found.');
+    }
+
+    /**
+     * Platform super administrators can access any existing Campaign.
+     */
+    if (requesterPlatformRole === 'super_admin') {
+      return;
+    }
+
+    /**
+     * Organisation Membership must still be active.
+     */
+    const organisationMembership =
+      await this.organisationMembershipRepository.findOne({
+        where: {
+          organisationId: campaign.organisationId,
+          userId: requesterUserId,
+          status: OrganisationMembershipStatus.ACTIVE,
+        },
+      });
+
+    if (!organisationMembership) {
+      throw new ForbiddenException(
+        'Access denied: your Organisation Membership is not active for this Campaign.',
+      );
+    }
+
+    /**
+     * The requester must also be an active member of this
+     * specific Campaign.
+     */
+    const requesterMembership =
+      await this.campaignMembershipRepository.findOne({
+        where: {
+          campaignId,
+          userId: requesterUserId,
+          status: CampaignMembershipStatus.ACTIVE,
+        },
+      });
+
+    if (!requesterMembership) {
+      throw new ForbiddenException(
+        'Access denied: you are not a member of this Campaign.',
+      );
+    }
+  }
+
+  /**
+   * Finds a Campaign Membership by ID.
+   *
+   * Note:
+   * This method only retrieves the membership. The caller must
+   * perform the appropriate Campaign-level access check before
+   * returning the membership to a client.
+   */
+  async findById(id: string): Promise<CampaignMembership> {
+    const membership = await this.campaignMembershipRepository.findOne({
+      where: { id },
+    });
+
+    if (!membership) {
+      throw new NotFoundException('Campaign Membership not found.');
+    }
+
+    return membership;
+  }
+
+  /**
+   * Lists all active Campaign Memberships for a specific Campaign.
+   *
+   * The Campaign itself must exist.
+   *
+   * Soft-deleted memberships are excluded automatically by TypeORM's
+   * normal repository queries.
+   */
+  async findByCampaignId(
+    campaignId: string,
+  ): Promise<CampaignMembership[]> {
+    const campaign = await this.campaignRepository.findOne({
+      where: { id: campaignId },
+    });
+
+    if (!campaign) {
+      throw new NotFoundException('Campaign not found.');
+    }
+
+    return this.campaignMembershipRepository.find({
+      where: {
+        campaignId,
+      },
+      order: {
+        createdAt: 'ASC',
+      },
+    });
+  }
+}
