@@ -51,6 +51,8 @@ import { Candidacy } from './modules/candidacies/entities/candidacy.entity';
 import { Campaign } from './modules/campaigns/entities/campaign.entity';
 import { CampaignMembership } from './modules/campaign-memberships/entities/campaign-membership.entity';
 
+import { RolePermission } from './modules/roles/entities/role-permission.entity';
+
 const isProduction = process.env.NODE_ENV === 'production';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -106,6 +108,7 @@ export default new DataSource({
         // Access control
         Permission,
         Role,
+        RolePermission,
         User,
       ],
 

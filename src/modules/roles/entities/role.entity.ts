@@ -1,3 +1,16 @@
+/**
+ * File: C:\Projects\PeopleFirstPolitician\backend\src\modules\roles\entities\role.entity.ts
+ *
+ * Purpose:
+ * - Defines platform-level application roles.
+ * - Associates users with their platform role.
+ * - Associates roles with fine-grained permissions.
+ *
+ * Security:
+ * - Roles are assigned only by trusted backend logic.
+ * - Public registration must never accept a role from the client.
+ */
+
 import {
   Column,
   CreateDateColumn,
@@ -6,7 +19,9 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
 import { User } from '../../users/entities/user.entity';
+import { RolePermission } from './role-permission.entity';
 
 @Entity('roles')
 export class Role {
@@ -21,6 +36,12 @@ export class Role {
 
   @OneToMany(() => User, (user) => user.role)
   users!: User[];
+
+  @OneToMany(
+    () => RolePermission,
+    (rolePermission) => rolePermission.role,
+  )
+  rolePermissions!: RolePermission[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
