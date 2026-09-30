@@ -30,7 +30,7 @@ export class AddPermissionsAndRolePermissions1790611944975
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `CREATE TABLE "permissions" (` +
+      `CREATE TABLE IF NOT EXISTS "permissions" (` +
         `"id" uuid NOT NULL DEFAULT uuid_generate_v4(), ` +
         `"code" character varying(120) NOT NULL, ` +
         `"description" text, ` +
