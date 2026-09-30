@@ -3,18 +3,28 @@
  *
  * Purpose:
  * - Enforces fine-grained application permissions.
- * - Works alongside the existing RolesGuard.
+ * - Supports both platform-level and organisation-scoped permissions.
  *
  * Security model:
  * - Authentication is handled by JwtAuthGuard.
- * - Platform role is obtained from request.user.role.
- * - The role must have every permission declared by @Permissions().
+ * - Platform-level requests use request.user.role.
+ * - Organisation-scoped requests use the authenticated user's
+ *   active role within the requested organisation.
+ * - Super administrators retain platform-level permission handling.
  * - Missing permissions result in HTTP 403.
  * - No permission is granted implicitly.
  *
- * Important:
- * - This guard does NOT replace RolesGuard.
- * - Existing @Roles() protection continues to work.
+ * Organisation-scoped request example:
+ *   /organisations/:organisationId/...
+ *
+ * For such requests:
+ *   authenticated user
+ *       -> active organisation membership
+ *       -> membership role
+ *       -> role permissions
+ *
+ * This prevents a user's role in Organisation A from authorising
+ * access to Organisation B.
  */
 
 import {
@@ -31,6 +41,11 @@ import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { Permission } from '../entities/permission.entity';
 import { RolePermission } from '../entities/role-permission.entity';
 import { Role } from '../entities/role.entity';
+
+import {
+  OrganisationMembership,
+  OrganisationMembershipStatus,
+} from '../../organisations/entities/organisation-membership.entity';
 
 interface AuthenticatedUser {
   userId?: string;
@@ -51,6 +66,9 @@ export class PermissionsGuard implements CanActivate {
 
     @InjectRepository(RolePermission)
     private readonly rolePermissionRepository: Repository<RolePermission>,
+
+    @InjectRepository(OrganisationMembership)
+    private readonly organisationMembershipRepository: Repository<OrganisationMembership>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -72,6 +90,7 @@ export class PermissionsGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
+
     const user = request.user as AuthenticatedUser | undefined;
 
     if (!user?.role) {
@@ -80,19 +99,73 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    /**
-     * Resolve the platform role.
-     */
-    const role = await this.roleRepository.findOne({
-      where: {
-        name: user.role,
-      },
-    });
+    const organisationId =
+      request.params?.organisationId as string | undefined;
 
-    if (!role) {
-      throw new ForbiddenException(
-        'Access denied: platform role not found',
-      );
+    /**
+     * Resolve the role in the correct security context.
+     *
+     * Platform-level requests:
+     *   request.user.role
+     *
+     * Organisation-scoped requests:
+     *   active OrganisationMembership.roleId
+     *
+     * Super administrators continue to use their platform role.
+     */
+    let role: Role | null = null;
+
+    if (organisationId && user.role !== 'super_admin') {
+      if (!user.userId) {
+        throw new ForbiddenException(
+          'Access denied: authenticated user ID not found',
+        );
+      }
+
+      const membership =
+        await this.organisationMembershipRepository.findOne({
+          where: {
+            userId: user.userId,
+            organisationId,
+            status: OrganisationMembershipStatus.ACTIVE,
+          },
+        });
+
+      if (!membership) {
+        throw new ForbiddenException(
+          'Access denied: no active organisation membership found',
+        );
+      }
+
+      role = await this.roleRepository.findOne({
+        where: {
+          id: membership.roleId,
+        },
+      });
+
+      if (!role) {
+        throw new ForbiddenException(
+          'Access denied: organisation membership role not found',
+        );
+      }
+    } else {
+      /**
+       * Platform-level permission resolution.
+       *
+       * This also handles super_admin requests to organisation-scoped
+       * endpoints, preserving the existing platform administrator model.
+       */
+      role = await this.roleRepository.findOne({
+        where: {
+          name: user.role,
+        },
+      });
+
+      if (!role) {
+        throw new ForbiddenException(
+          'Access denied: platform role not found',
+        );
+      }
     }
 
     /**
@@ -116,7 +189,7 @@ export class PermissionsGuard implements CanActivate {
       }
 
       /**
-       * Check whether this role has the permission.
+       * Check whether the resolved role has the permission.
        */
       const rolePermission =
         await this.rolePermissionRepository.findOne({

@@ -3,6 +3,8 @@
  *
  * Purpose:
  * - Verifies fine-grained permission enforcement.
+ * - Verifies both platform-role and organisation-membership
+ *   permission resolution.
  *
  * Security scenarios:
  * - No permission metadata allows the route.
@@ -12,12 +14,10 @@
  * - Role without permission is rejected.
  * - Role with required permission is allowed.
  * - Multiple permissions require all permissions.
- *
- * Testing note:
- * - The Reflector is mocked with Jest functions.
- * - The mock is cast to Reflector only when injected into PermissionsGuard.
- * - This prevents TypeScript from treating getAllAndOverride()
- *   as the real Reflector method and allows mockReturnValue().
+ * - Organisation-scoped permissions use the active membership role.
+ * - Missing organisation membership is rejected.
+ * - A role from another organisation cannot be used.
+ * - Super admin retains platform-level permission handling.
  */
 
 import {
@@ -31,18 +31,14 @@ import { Permission } from '../entities/permission.entity';
 import { RolePermission } from '../entities/role-permission.entity';
 import { Role } from '../entities/role.entity';
 
+import {
+  OrganisationMembership,
+  OrganisationMembershipStatus,
+} from '../../organisations/entities/organisation-membership.entity';
+
 describe('PermissionsGuard', () => {
   let guard: PermissionsGuard;
 
-  /**
-   * Jest mock for NestJS Reflector.
-   *
-   * Important:
-   * Do NOT type this object directly as Reflector.
-   * Doing so causes TypeScript to treat getAllAndOverride()
-   * as the real NestJS method and prevents use of
-   * Jest methods such as mockReturnValue().
-   */
   const reflectorMock = {
     getAllAndOverride: jest.fn(),
     get: jest.fn(),
@@ -62,23 +58,28 @@ describe('PermissionsGuard', () => {
     findOne: jest.fn(),
   };
 
+  const organisationMembershipRepositoryMock = {
+    findOne: jest.fn(),
+  };
+
   const executionContextMock = {
     getHandler: jest.fn(),
     getClass: jest.fn(),
     switchToHttp: jest.fn(),
   };
 
-  /**
-   * Creates a mocked NestJS execution context.
-   */
-  const createContext = (user?: {
-    userId?: string;
-    email?: string;
-    role?: string;
-  }) => {
+  const createContext = (
+    user?: {
+      userId?: string;
+      email?: string;
+      role?: string;
+    },
+    params: Record<string, string> = {},
+  ) => {
     executionContextMock.switchToHttp.mockReturnValue({
       getRequest: () => ({
         user,
+        params,
       }),
     });
 
@@ -88,15 +89,12 @@ describe('PermissionsGuard', () => {
   beforeEach(() => {
     jest.resetAllMocks();
 
-    /**
-     * Cast the complete mock object to Reflector only here,
-     * when it is supplied to the production guard.
-     */
     guard = new PermissionsGuard(
       reflectorMock as unknown as Reflector,
       roleRepositoryMock as any,
       permissionRepositoryMock as any,
       rolePermissionRepositoryMock as any,
+      organisationMembershipRepositoryMock as any,
     );
   });
 
@@ -109,6 +107,10 @@ describe('PermissionsGuard', () => {
 
     expect(
       roleRepositoryMock.findOne,
+    ).not.toHaveBeenCalled();
+
+    expect(
+      organisationMembershipRepositoryMock.findOne,
     ).not.toHaveBeenCalled();
   });
 
@@ -167,7 +169,7 @@ describe('PermissionsGuard', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('should reject when the role does not have the permission', async () => {
+  it('should reject when the platform role does not have the permission', async () => {
     reflectorMock.getAllAndOverride.mockReturnValue([
       'result.submit',
     ]);
@@ -198,7 +200,7 @@ describe('PermissionsGuard', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('should allow access when the role has the required permission', async () => {
+  it('should allow access when the platform role has the required permission', async () => {
     reflectorMock.getAllAndOverride.mockReturnValue([
       'result.submit',
     ]);
@@ -321,5 +323,179 @@ describe('PermissionsGuard', () => {
         }),
       ),
     ).resolves.toBe(true);
+  });
+
+  it('should resolve permissions from the active organisation membership role', async () => {
+    reflectorMock.getAllAndOverride.mockReturnValue([
+      'agent_assignment.create',
+    ]);
+
+    const role = {
+      id: 'campaign-manager-role',
+      name: 'campaign_manager',
+    } as Role;
+
+    const membership = {
+      id: 'membership-1',
+      userId: 'user-1',
+      organisationId: 'organisation-1',
+      roleId: role.id,
+      status: OrganisationMembershipStatus.ACTIVE,
+    } as OrganisationMembership;
+
+    const permission = {
+      id: 'permission-1',
+      code: 'agent_assignment.create',
+    } as Permission;
+
+    const rolePermission = {
+      id: 'role-permission-1',
+      roleId: role.id,
+      permissionId: permission.id,
+    } as RolePermission;
+
+    organisationMembershipRepositoryMock.findOne.mockResolvedValue(
+      membership,
+    );
+
+    roleRepositoryMock.findOne.mockResolvedValue(role);
+
+    permissionRepositoryMock.findOne.mockResolvedValue(permission);
+
+    rolePermissionRepositoryMock.findOne.mockResolvedValue(
+      rolePermission,
+    );
+
+    await expect(
+      guard.canActivate(
+        createContext(
+          {
+            userId: 'user-1',
+            role: 'user',
+          },
+          {
+            organisationId: 'organisation-1',
+          },
+        ),
+      ),
+    ).resolves.toBe(true);
+
+    expect(
+      organisationMembershipRepositoryMock.findOne,
+    ).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        organisationId: 'organisation-1',
+        status: OrganisationMembershipStatus.ACTIVE,
+      },
+    });
+
+    expect(
+      roleRepositoryMock.findOne,
+    ).toHaveBeenCalledWith({
+      where: {
+        id: role.id,
+      },
+    });
+  });
+
+  it('should reject an organisation-scoped request without an active membership', async () => {
+    reflectorMock.getAllAndOverride.mockReturnValue([
+      'agent_assignment.create',
+    ]);
+
+    organisationMembershipRepositoryMock.findOne.mockResolvedValue(
+      null,
+    );
+
+    await expect(
+      guard.canActivate(
+        createContext(
+          {
+            userId: 'user-1',
+            role: 'user',
+          },
+          {
+            organisationId: 'organisation-1',
+          },
+        ),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(
+      roleRepositoryMock.findOne,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('should not use a role from a different organisation', async () => {
+    reflectorMock.getAllAndOverride.mockReturnValue([
+      'agent_assignment.create',
+    ]);
+
+    organisationMembershipRepositoryMock.findOne.mockResolvedValue(
+      null,
+    );
+
+    await expect(
+      guard.canActivate(
+        createContext(
+          {
+            userId: 'user-1',
+            role: 'user',
+          },
+          {
+            organisationId: 'organisation-2',
+          },
+        ),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('should allow super_admin to use the platform role on an organisation-scoped request', async () => {
+    reflectorMock.getAllAndOverride.mockReturnValue([
+      'agent_assignment.create',
+    ]);
+
+    const role = {
+      id: 'super-admin-role',
+      name: 'super_admin',
+    } as Role;
+
+    const permission = {
+      id: 'permission-1',
+      code: 'agent_assignment.create',
+    } as Permission;
+
+    const rolePermission = {
+      id: 'role-permission-1',
+      roleId: role.id,
+      permissionId: permission.id,
+    } as RolePermission;
+
+    roleRepositoryMock.findOne.mockResolvedValue(role);
+
+    permissionRepositoryMock.findOne.mockResolvedValue(permission);
+
+    rolePermissionRepositoryMock.findOne.mockResolvedValue(
+      rolePermission,
+    );
+
+    await expect(
+      guard.canActivate(
+        createContext(
+          {
+            userId: 'user-1',
+            role: 'super_admin',
+          },
+          {
+            organisationId: 'organisation-1',
+          },
+        ),
+      ),
+    ).resolves.toBe(true);
+
+    expect(
+      organisationMembershipRepositoryMock.findOne,
+    ).not.toHaveBeenCalled();
   });
 });

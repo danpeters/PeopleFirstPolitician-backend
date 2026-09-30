@@ -53,6 +53,12 @@ import { CampaignMembership } from './modules/campaign-memberships/entities/camp
 
 import { RolePermission } from './modules/roles/entities/role-permission.entity';
 
+import { Agent } from './modules/agents/entities/agent.entity';
+import { AgentAssignment } from './modules/agents/entities/agent-assignment.entity';
+import { PollingUnitResult } from './modules/results/entities/polling-unit-result.entity';
+import { PollingUnitResultVote } from './modules/results/entities/polling-unit-result-vote.entity';
+import { ResultEvidence } from './modules/results/entities/result-evidence.entity';
+
 const isProduction = process.env.NODE_ENV === 'production';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -75,6 +81,11 @@ export default new DataSource({
       entities: [
         // Core audit
         AuditLog,
+        Agent,
+        AgentAssignment,
+        PollingUnitResult,
+        PollingUnitResultVote,
+        ResultEvidence,
 
         // Geography
         Lga,

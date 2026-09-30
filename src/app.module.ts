@@ -109,6 +109,15 @@ import { RolePermission } from './modules/roles/entities/role-permission.entity'
 import { User } from './modules/users/entities/user.entity';
 
 // -------------------------------------------------------------------
+// Agent / Results entities
+// -------------------------------------------------------------------
+import { Agent } from './modules/agents/entities/agent.entity';
+import { AgentAssignment } from './modules/agents/entities/agent-assignment.entity';
+import { PollingUnitResult } from './modules/results/entities/polling-unit-result.entity';
+import { PollingUnitResultVote } from './modules/results/entities/polling-unit-result-vote.entity';
+import { ResultEvidence } from './modules/results/entities/result-evidence.entity';
+
+// -------------------------------------------------------------------
 // Application feature modules
 // -------------------------------------------------------------------
 import { AuthModule } from './modules/auth/auth.module';
@@ -117,6 +126,8 @@ import { RolesModule } from './modules/roles/roles.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { GeographyModule } from './modules/geography/geography.module';
 import { CampaignMembershipsModule } from './modules/campaign-memberships/campaign-memberships.module';
+import { AgentsModule } from './modules/agents/agents.module';
+import { ResultsModule } from './modules/results/results.module';
 
 @Module({
   imports: [
@@ -200,6 +211,15 @@ import { CampaignMembershipsModule } from './modules/campaign-memberships/campai
           Campaign,
           CampaignMembership,
 
+          // Agents
+          Agent,
+          AgentAssignment,
+
+          // Results
+          PollingUnitResult,
+          PollingUnitResultVote,
+          ResultEvidence,
+
           // Access control
           Permission,
           Role,
@@ -267,6 +287,8 @@ import { CampaignMembershipsModule } from './modules/campaign-memberships/campai
     AuditModule,
     GeographyModule,
     CampaignMembershipsModule,
+    AgentsModule,
+    ResultsModule,
   ],
 
   controllers: [
