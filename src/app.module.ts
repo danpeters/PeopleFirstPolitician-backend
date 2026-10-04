@@ -125,9 +125,11 @@ import { UsersModule } from './modules/users/users.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { GeographyModule } from './modules/geography/geography.module';
-import { CampaignMembershipsModule } from './modules/campaign-memberships/campaign-memberships.module';
 import { AgentsModule } from './modules/agents/agents.module';
 import { ResultsModule } from './modules/results/results.module';
+
+import { ElectionsModule } from './modules/elections/elections.module';
+import { CampaignMembershipsModule } from './modules/campaign-memberships/campaign-memberships.module';
 
 @Module({
   imports: [
@@ -286,6 +288,7 @@ import { ResultsModule } from './modules/results/results.module';
     RolesModule,
     AuditModule,
     GeographyModule,
+    ElectionsModule,
     CampaignMembershipsModule,
     AgentsModule,
     ResultsModule,
