@@ -516,6 +516,18 @@ export class ElectoralScopesService {
     const query =
       this.electoralScopeRepository
         .createQueryBuilder('scope')
+        .leftJoinAndSelect(
+          'scope.state',
+          'state',
+        )
+        .leftJoinAndSelect(
+          'scope.lga',
+          'lga',
+        )
+        .leftJoinAndSelect(
+          'scope.ward',
+          'ward',
+        )
         .where(
           'scope.deleted_at IS NULL',
         );
@@ -551,9 +563,9 @@ export class ElectoralScopesService {
 
     return buildPaginatedResponse(
       items,
-      total,
       safePage,
       safeLimit,
+      total,
     );
   }
 
