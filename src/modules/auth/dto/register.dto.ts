@@ -46,10 +46,11 @@ export class RegisterDto {
    * The validation pattern allows common international
    * and Nigerian telephone number formats.
    */
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^[+]?[0-9\s()-]{7,20}$/, {
-    message: 'Please provide a valid phone number',
+  @IsNotEmpty({
+    message: 'Phone number is required',
+  })
+  @Matches(/^\d{11}$/, {
+    message: 'Phone number must contain exactly 11 digits',
   })
   phone: string;
 

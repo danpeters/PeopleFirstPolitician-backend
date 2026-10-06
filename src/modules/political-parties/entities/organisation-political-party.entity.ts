@@ -64,5 +64,3 @@ export class OrganisationPoliticalParty {
   })
   updatedAt!: Date;
 }
-
-

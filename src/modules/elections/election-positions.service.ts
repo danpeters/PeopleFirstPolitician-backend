@@ -331,9 +331,9 @@ export class ElectionPositionsService {
 
     return buildPaginatedResponse(
       items,
-      total,
       safePage,
       safeLimit,
+      total,
     );
   }
 

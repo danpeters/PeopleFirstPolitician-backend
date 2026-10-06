@@ -296,6 +296,39 @@ export class AuthController {
   }
 
   /**
+ * Get the active organisations of the currently authenticated user.
+ *
+ * Endpoint:
+ * GET /auth/my-organisations
+ *
+ * Security:
+ * - JwtAuthGuard verifies the bearer access token.
+ * - The authenticated user's ID is obtained from req.user.
+ * - The client cannot supply another user's ID.
+ * - Only active organisation memberships are returned.
+ */
+@Get('my-organisations')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard)
+@ApiOperation({
+  summary: 'Get current user organisation memberships',
+  description:
+    'Returns the active organisations and organisation-level roles belonging to the currently authenticated user.',
+})
+async myOrganisations(
+  @Req()
+  req: {
+    user: {
+      userId: string;
+    };
+  },
+) {
+  return this.authService.myOrganisations(
+    req.user.userId,
+  );
+}
+
+  /**
    * Change the password of the currently authenticated user.
    *
    * Endpoint:

@@ -3,7 +3,7 @@
  *
  * Purpose:
  * Provides a global HTTP exception filter that formats error responses
- * into a standard structure.
+ * into a standard structure while logging unexpected server errors.
  *
  * Output shape:
  * {
@@ -21,11 +21,14 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(HttpExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
@@ -59,6 +62,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
       } else {
         message = exception.message;
       }
+    } else {
+      /**
+       * Log unexpected exceptions for server-side diagnostics.
+       *
+       * The actual exception is deliberately not returned to the client.
+       */
+      this.logger.error(
+        `Unhandled exception: ${request.method} ${request.originalUrl ?? request.url}`,
+        exception instanceof Error ? exception.stack : String(exception),
+      );
     }
 
     response.status(statusCode).json({

@@ -772,9 +772,9 @@ export class AgentsService {
 
     return buildPaginatedResponse(
       items,
-      total,
       safePage,
       safeLimit,
+      total,
     );
   }
 

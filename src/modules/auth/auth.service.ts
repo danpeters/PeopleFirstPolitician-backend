@@ -61,14 +61,27 @@ import { UsersService } from '../users/users.service';
 
 import { UserStatusEnum } from '../../common/enums/user-status.enum';
 
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+
+import {
+  OrganisationMembership,
+  OrganisationMembershipStatus,
+} from '../organisations/entities/organisation-membership.entity';
+
+import { OrganisationStatus } from '../organisations/entities/organisation.entity';
+
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly usersService: UsersService,
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
-    private readonly mailService: MailService,
-  ) {}
+  private readonly usersService: UsersService,
+  private readonly jwtService: JwtService,
+  private readonly configService: ConfigService,
+  private readonly mailService: MailService,
+
+  @InjectRepository(OrganisationMembership)
+  private readonly organisationMembershipRepository: Repository<OrganisationMembership>,
+) {}
 
   /**
    * Authenticate a user.
@@ -808,6 +821,46 @@ export class AuthService {
   async me(userId: string) {
     return this.usersService.findOne(userId);
   }
+
+  /**
+ * Get the active organisation memberships of the currently
+ * authenticated user.
+ *
+ * Security:
+ * - The user ID comes from the authenticated JWT.
+ * - The client cannot supply another user's ID.
+ * - Only active memberships are returned.
+ * - Only active organisations are returned.
+ *
+ * This provides the frontend with the organisation context
+ * required by organisation-scoped modules such as Agents.
+ */
+async myOrganisations(userId: string) {
+  const memberships =
+    await this.organisationMembershipRepository.find({
+      where: {
+        userId,
+        status: OrganisationMembershipStatus.ACTIVE,
+        organisation: {
+          status: OrganisationStatus.ACTIVE,
+        },
+      },
+      relations: ['organisation', 'role'],
+      order: {
+        createdAt: 'ASC',
+      },
+    });
+
+  return memberships.map((membership) => ({
+    membershipId: membership.id,
+    organisationId: membership.organisationId,
+    organisationName: membership.organisation.name,
+    organisationSlug: membership.organisation.slug,
+    roleId: membership.roleId,
+    roleName: membership.role.name,
+    status: membership.status,
+  }));
+}
 
   /**
    * Change the password of the currently authenticated user.

@@ -138,6 +138,48 @@ async function seedDevelopmentFixture(): Promise<void> {
       // makes the membership relationship explicit.
       void membership;
 
+            // ---------------------------------------------------------------
+      // 4b. Active super_admin organisation membership.
+      //
+      // The development administrator is a platform-level super_admin,
+      // but organisation-scoped services also require an active
+      // organisation membership. This ensures the administrator can
+      // access organisation-scoped development pages such as Elections.
+      // ---------------------------------------------------------------
+      const adminUser = await getOne<{ id: string }>(
+        manager.connection,
+        `
+          SELECT id
+          FROM users
+          WHERE email = $1
+            AND "deletedAt" IS NULL
+          LIMIT 1
+        `,
+        ['admin@example.com'],
+      );
+
+      const superAdminRole = await getOne<{ id: string }>(
+        manager.connection,
+        `SELECT id FROM roles WHERE name = 'super_admin' LIMIT 1`,
+      );
+
+      const adminMembership = await getOne<{ id: string }>(
+        manager.connection,
+        `
+          INSERT INTO organisation_memberships
+            (organisation_id, user_id, role_id, status)
+          VALUES ($1, $2, $3, 'active')
+          ON CONFLICT (organisation_id, user_id)
+          DO UPDATE SET role_id = EXCLUDED.role_id,
+                        status = 'active',
+                        deleted_at = NULL
+          RETURNING id
+        `,
+        [organisation.id, adminUser.id, superAdminRole.id],
+      );
+
+      void adminMembership;
+
       // ---------------------------------------------------------------
       // 5. Development political party.
       // ---------------------------------------------------------------
